@@ -1,12 +1,13 @@
-mixin-modules/ contain the actual mixin code
-testing-scripts/ are the post modules I used for testing the mixins
+lib/ contains the actual mixin code
+test/ houses the post modules I used for testing the mixins (use loadpath /path/to/test/modules)
 
 for testing I:
-- overwrote lib/msf/core/post/windows/[services.rb,registry.rb] with mixin-modules/*.rb
-- created ~/.msf3/modules/post/windows/test/ 
-- added testing-scripts/test-* to ~/.msf3/modules/post/windows/test/ 
-- started msfconsole with the appropriate rc script in testing-scripts/
-- established a rev shell from a win xp3 box using an exe created with /testing-scripts/make*.sh
+- overwrote lib/msf/core/post/windows/[services.rb,registry.rb] with thos in lib..
+- copied test/* to /path/to/msfroot/
+- used loadpath test/modules to load those test modules into the path after msf is running
+- started msfconsole with the appropriate rc script in helper-scripts/
+- established a rev shell or rev meterp from a win xp3 box using an exe created with 
+	helper-scripts/make*.sh
 - ran the test post mods
 
 This stemmed from a conversation with egypt who mentioned he wanted to add modules for non-native
@@ -19,13 +20,13 @@ Egypt is working on integrating into the post code so this shell version is auto
 if the session is a shell or non-native windows meterpreter.
 
 I established a general parser and error parser to facilitate additional table-formatted CLI tools
-in the future.  Tho I've only tested with reg.exe and sc.exe.  You just pass in the raw results of
-a command and it parses what it can discern into a hash using keys and vals found in the output.  
-The error parser uses it too.
+in the future (cli_parse.rb).  Tho I've only tested with reg.exe and sc.exe.  You just pass in the 
+raw results of a command and it parses what it can discern into a hash using keys and vals found in
+the output.  The error parser uses it too.
 
 Darkoperator has had problems with these types of CLI tools, he's seen them bork remote shell
 connections, esp with netcat.  I didn't have any issues with the shell connection dropping, but I 
-only tested on WinXP3 using a rev shell & msf
+only tested on WinXP3 using a rev shell and rev meterp
 
 I noticed a bug in the windowsservices mixin:  service['credentials'] is spelled 
 service['creentials']. It's probably fixed by now, but wanted to document it here so I don't forget.

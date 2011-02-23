@@ -6,5 +6,6 @@ set lport 443
 set lhost 192.168.227.1
 set exitonsession false
 exploit -j -z
-use post/windows/test/test-services
+loadpath test/modules
+use post/windows/test/services
 set SESSION 1
