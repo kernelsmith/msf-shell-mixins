@@ -169,14 +169,13 @@ protected
 			cmd = "cmd.exe /c reg delete \"#{key}\" /v \"#{valname}\" /f"
 			results = session.shell_command_token_win32(cmd)
 			if results =~ /The operation completed successfully/
-				return true
+				return nil
 			elsif results =~ /^Error:/
 				return win_parse_error(results) # return an error_hash
 			else
 				return win_parse_error("ERROR:Unknown error running #{cmd}")
 			end
 		end
-		return boo
 	end
 
 	def shell_registry_deletekey(key)
@@ -186,14 +185,13 @@ protected
 			cmd = "cmd.exe /c reg delete \"#{key}\" /f"
 			results = session.shell_command_token_win32(cmd)
 			if results =~ /The operation completed successfully/
-				return true
+				return nil
 			elsif results =~ /^Error:/
 				return win_parse_error(results) # return an error_hash
 			else
 				return win_parse_error("ERROR:Unknown error running #{cmd}") 
 			end
 		end
-		return boo
 	end
 
 	def shell_registry_enumkeys(key)
@@ -314,22 +312,30 @@ protected
 			root_key, base_key = session.sys.registry.splitkey(key)
 			open_key = session.sys.registry.create_key(root_key, base_key)
 			open_key.close
-			return true
+			return nil
 		rescue Rex::Post::Meterpreter::RequestError => e
 			return win_parse_error("ERROR:#{e}") # return an error_hash
 		end
-		return boo
 	end
 
 	def meterpreter_registry_deleteval(key, valname)
-
+		begin
+			root_key, base_key = session.sys.registry.splitkey(key)
+			open_key = session.sys.registry.open_key(root_key, base_key, KEY_WRITE)
+			open_key.delete_value(valname)
+			open_key.close
+			return nil
+		rescue Rex::Post::Meterpreter::RequestError => e
+			return win_parse_error("ERROR:#{e}") # return an error_hash
+		end
 	end
 
 	def meterpreter_registry_deletekey(key)
 		begin
 			root_key, base_key = session.sys.registry.splitkey(key)
 			deleted = session.sys.registry.delete_key(root_key, base_key)
-			return deleted
+			return nil if deleted
+			return win_parse_error("ERROR:#{deleted}") # return an error_hash
 		rescue Rex::Post::Meterpreter::RequestError => e
 			return win_parse_error("ERROR:#{e}") # return an error_hash
 		end
