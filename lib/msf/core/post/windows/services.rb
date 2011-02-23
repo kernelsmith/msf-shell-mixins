@@ -1,17 +1,321 @@
 
+require 'msf/core/post/windows/cli_parse'
+
 module Msf
 class Post
 
 module WindowsServices
 
+	include Msf::Post::Windows::CliParse
+	include ::Msf::Post::Registry
+	
+	NOTIMP = "This method has not been implemented yet"
+
+	#
+	# List all Windows Services present. Returns an Array containing the names
+	# of the services.
+	#
+	
+	def service_list
+		if session_has_services_depend?
+			meterpreter_service_list
+		else
+			shell_service_list
+		end
+	end
+	
+	def service_info(name)
+		if session_has_services_depend?
+			meterpreter_service_info(name)
+		else
+			shell_service_info(name)
+		end
+	end
+
+	def service_change_startup(name,mode)
+		if session_has_services_depend?
+			meterpreter_service_change_startup(name,mode)
+		else
+			shell_service_change_startup(name,mode)
+		end
+	end
+
+	def service_create(name, display_name, executable_on_host,startup=2)
+		if session_has_services_depend?
+			meterpreter_service_create(name, display_name, executable_on_host,startup)
+		else
+			shell_service_create(name, display_name, executable_on_host,startup)
+		end
+	end
+	
+	def service_start(name)
+		if session_has_services_depend?
+			meterpreter_service_start(name)
+		else
+			shell_service_start(name)
+		end
+	end
+	
+	def service_stop(name)
+		if session_has_services_depend?
+			meterpreter_service_stop(name)
+		else
+			shell_service_stop(name)
+		end
+	end
+	
+	def service_delete(name)
+		if session_has_services_depend?
+			meterpreter_service_delete(name)
+		else
+			shell_service_delete(name)
+		end
+	end
+	
+	def service_query_config(name)
+		if session_has_services_depend?
+			#meterpreter_query_config(name)
+			NOTIMP
+		else
+			shell_service_query_config(name)
+		end
+		
+	end
+	
+	def service_query_ex(name)
+		if session_has_services_depend?
+			#meterpreter_service_query_ex(name)
+			NOTIMP
+		else
+			shell_service_query_ex(name)
+		end	
+	end
+	
+	def service_query_state(name)
+		if session_has_services_depend?
+			#meterpreter_service_query_state(name)
+			NOTIMP
+		else
+			shell_service_query_state(name)
+		end	
+	end
+	
+	#
+	# Ensures mode is sane, like what sc.exe wants to see, e.g. 2 or "AUTO_START" etc returns "auto"
+	# If the second argument it true, integers are returned instead of strings  
+	#
+	def normalize_mode(mode,i=false)
+		mode = mode.to_s # someone could theoretically pass in a 2 instead of "2"
+		# accepted boot|system|auto|demand|disabled
+		if mode =~ /(0|BOOT)/i
+			mode = i ? 0 : 'boot' # mode is 'boot', unless i is true, then it's 0
+		elsif mode =~ /(1|SYSTEM)/i
+			mode = i ? 1 : 'system'
+		elsif mode =~ /(2|AUTO)/i
+			mode = i ? 2 : 'auto'
+		elsif mode =~ /(3|DEMAND|MANUAL)/i
+			mode = i ? 3 : 'demand'
+		elsif mode =~ /(4|DISABLED)/i
+			mode = i ? 4 : 'disabled'
+		end
+		return mode		
+	end
+	
+	protected
+	#
+	# Determines whether the session can use meterpreter services methods
+	#
+	def session_has_services_depend?
+		return false if session.type == "shell" # shell is bad enough, otherwise check dependencies
+		
+		(session.sys.registry and session.railgun)
+	end
+	
+	### meterpreter versions ###
+	
+	def meterpreter_service_list
+		serviceskey = "HKLM\\SYSTEM\\CurrentControlSet\\Services"
+		threadnum = 0
+		a =[]
+		services = []
+		meterpreter_registry_enumkeys(serviceskey).each do |s|
+			if threadnum < 10
+				a.push(::Thread.new(s) { |sk|
+						begin
+							srvtype = registry_getvaldata("#{serviceskey}\\#{sk}","Type").to_s
+							if srvtype =~ /32|16/
+								services << sk
+							end
+						rescue
+						end
+					})
+				threadnum += 1
+			else
+				sleep(0.05) and a.delete_if {|x| not x.alive?} while not a.empty?
+				threadnum = 0
+			end
+		end
+
+		return services
+	end
+
+	#
+	# Get Windows Service information. 
+	#
+	# Information returned in a hash with display name, startup mode and
+	# command executed by the service. Service name is case sensitive.  Hash
+	# keys are Name, Start, Command and Credentials.
+	#
+	def meterpreter_service_info(name)
+		service = {}
+		servicekey = "HKLM\\SYSTEM\\CurrentControlSet\\Services\\#{name.chomp}"
+		service["Name"] = registry_getvaldata(servicekey,"DisplayName").to_s
+		srvstart = registry_getvaldata(servicekey,"Start").to_i
+		service["Startup"] = normalize_mode(srvstart)
+		service["Command"] = registry_getvaldata(servicekey,"ImagePath").to_s
+		service["Credentials"] = registry_getvaldata(servicekey,"ObjectName").to_s
+		return service
+	end
+
+	#
+	# Changes a given service startup mode, name must be provided and the mode.
+	#
+	# Mode is a string with either auto, manual or disable for the
+	# corresponding setting. The name of the service is case sensitive.
+	#
+	def meterpreter_service_change_startup(name,mode)
+		servicekey = "HKLM\\SYSTEM\\CurrentControlSet\\Services\\#{name.chomp}"
+		mode = normalize_mode(mode)
+		registry_setvaldata(servicekey,"Start",mode.to_s,"REG_DWORD")
+	end
+
+	#
+	# Create a service that runs it's own process.
+	#
+	# It takes as values the service name as string, the display name as
+	# string, the path of the executable on the host that will execute at
+	# startup as string and the startup mode as an integer of 2 for Auto, 3 for
+	# Manual or 4 for Disable, but strings will converted when possible, default is Auto.
+	#
+	def meterpreter_service_create(name, display_name, executable_on_host,mode=2)
+		mode = normalize_mode(mode,true)
+		adv = client.railgun.get_dll('advapi32')
+		manag = adv.OpenSCManagerA(nil,nil,0x13)
+		if(manag["return"] != 0)
+			# SC_MANAGER_CREATE_SERVICE = 0x0002
+			newservice = adv.CreateServiceA(manag["return"],name,display_name,
+				0x0010,0X00000010,mode,0,executable_on_host,nil,nil,nil,nil,nil)
+			adv.CloseServiceHandle(newservice["return"])
+			adv.CloseServiceHandle(manag["return"])
+			#SERVICE_START=0x0010  SERVICE_WIN32_OWN_PROCESS= 0X00000010
+			#SERVICE_AUTO_START = 2 SERVICE_ERROR_IGNORE = 0
+			if newservice["GetLastError"] == 0
+				return 0
+			elsif newservice["GetLastError"] == 1072
+				#return 1
+				return {:errval => 1072 , :error => 'The specified service has been marked for deletion'}
+			else
+				return {:errval => 9999 , :error => "#{newservice.pretty_inspect}"}
+			end
+		else
+			raise "Could not open Service Control Manager, Access Denied"
+		end
+	end
+
+	#
+	# Start a service.
+	#
+	# Returns 0 if service started, 1 if service is already started and 2 if
+	# service is disabled.
+	#
+	def meterpreter_service_start(name)
+		adv = client.railgun.get_dll('advapi32')
+		manag = adv.OpenSCManagerA(nil,nil,1)
+		if(manag["return"] == 0)
+			raise "Could not open Service Control Manager, Access Denied"
+		end
+		#open with  SERVICE_START (0x0010)
+		servhandleret = adv.OpenServiceA(manag["return"],name,0x10)
+		if(servhandleret["return"] == 0)
+			adv.CloseServiceHandle(manag["return"])
+			raise "Could not Open Service, Access Denied"
+		end
+		retval = adv.StartServiceA(servhandleret["return"],0,nil)
+		adv.CloseServiceHandle(servhandleret["return"])
+		adv.CloseServiceHandle(manag["return"])
+		if retval["GetLastError"] == 0
+			return 0
+		elsif retval["GetLastError"] == 1056
+			#return 1
+			return {:errval => 1056 , :error => 'An instance of the service is already running.'}
+		elsif retval["GetLastError"] == 1058
+			#return 2
+			return {:errval => 1058 , :error => 'The service cannot be started, either because it 
+			is disabled or because it has no enabled devices associated with it.'}
+		end
+	end
+
+	#
+	# Stop a service.
+	#
+	# Returns 0 if service is stopped successfully, 1 if service is already
+	# stopped or disabled and 2 if the service can not be stopped.
+	#
+	def meterpreter_service_stop(name)
+		adv = client.railgun.get_dll('advapi32')
+		manag = adv.OpenSCManagerA(nil,nil,1)
+		if(manag["return"] == 0)
+			raise "Could not open Service Control Manager, Access Denied"
+		end
+		#open with  SERVICE_STOP (0x0020)
+		servhandleret = adv.OpenServiceA(manag["return"],name,0x30)
+		if(servhandleret["return"] == 0)
+			adv.CloseServiceHandle(manag["return"])
+			raise "Could not Open Service, Access Denied"
+		end
+		retval = adv.ControlService(servhandleret["return"],1,56)
+		adv.CloseServiceHandle(servhandleret["return"])
+		adv.CloseServiceHandle(manag["return"])
+		if retval["GetLastError"] == 0
+			return 0
+		elsif retval["GetLastError"] == 1062
+			#return 1
+			return {:errval => 1062 ,:error => 'The service has not been started.'}
+		elsif retval["GetLastError"] == 1052
+			#return 2
+			return {:errval => 1052 ,:error => 'The requested control is not valid for this service.'}
+		end
+	end
+
+	#
+	# Delete a service by deleting the key in the registry.
+	#
+	def meterpreter_service_delete(name)
+		begin
+			basekey = "HKLM\\SYSTEM\\CurrentControlSet\\Services"
+			if registry_enumkeys(basekey).index(name)
+				servicekey = "HKLM\\SYSTEM\\CurrentControlSet\\Services\\#{name.chomp}"
+				registry_deletekey(servicekey)
+				return true
+			else
+				return false
+			end
+		rescue::Exception => e
+			print_error(e)
+			return false
+		end
+	end
+	
+	### shell versions ###
+	
 	#
 	# List all Windows Services present.  Returns an Array containing the names
 	# of the services.
 	#
-	def service_list
+	def shell_service_list
 		#SERVICE_NAME: Winmgmt
 		#DISPLAY_NAME: Windows Management Instrumentation
-        	# <...etc...>
+        # <...etc...>
 		#
 		services = []
 		begin
@@ -21,36 +325,37 @@ module WindowsServices
 				results.each_line do |line| 
 					if line =~ /SERVICE_NAME:/
 						h = win_parse_results(line)
-						services << h['SERVICE_NAME']
+						services << h[:service_name]
 					end 
 				end
 			elsif results =~ /(^Error:.*|FAILED.*:)/
-				error_hash = win_parse_error(results)
+				return win_parse_error(results) # return an error_hash
 			elsif results =~ /SYNTAX:/
 				# Syntax error
-				error_hash = win_parse_error("ERROR:Syntax Error, cmd was #{cmd}")
+				return win_parse_error("ERROR:Syntax Error, cmd was #{cmd}")
 			else
-				error_hash = win_parse_error("ERROR:Unknown error running sc.exe")
+				return win_parse_error("ERROR:Unknown error running sc.exe")
 			end
 		end
 		return services
 	end
+	
 	#
 	# Get Windows Service config information. 
 	#
 	# Info returned stuffed into a hash with all info that sc.exe qc <service_name> will cough up
 	# Service name is case sensitive.
-	# Hash keys match the keys returned by sc.exe qc <service_name>
+	# Hash keys match the keys returned by sc.exe qc <service_name>, but downcased and symbolized
 	# e.g returns {
-	# "SERVICE_NAME" => "winmgmt",
-	# "TYPE" => "20 WIN32_SHARE_PROCESS",
-	# "START_TYPE" => "2 AUTO_START",
+	# :service_name => "winmgmt",
+	# :type => "20 WIN32_SHARE_PROCESS",
+	# :start_type => "2 AUTO_START",
 	# <...>
-	# "DEPENDENCIES" => "RPCSS,OTHER",
-	# "SERVICE_START_NAME" => "LocalSystem" }
+	# :dependencies => "RPCSS,OTHER",
+	# :service_start_name => "LocalSystem" }
 	# etc.  see sc qc /? for more info
 	#
-	def service_query_config(name)
+	def shell_service_query_config(name)
 		service = {}
 		begin
 			cmd = "cmd.exe /c sc qc #{name.chomp}"
@@ -71,12 +376,12 @@ module WindowsServices
 				# 
 				service = win_parse_results(results)
 			elsif results =~ /(^Error:.*|FAILED.*:)/
-				error_hash = win_parse_error(results)
+				return win_parse_error(results) # return an error_hash
 			elsif results =~ /SYNTAX:/
 				# then syntax error
-				error_hash = win_parse_error("ERROR:Syntax Error, cmd was #{cmd}")
+				return win_parse_error("ERROR:Syntax Error, cmd was #{cmd}")
 			else
-				error_hash = win_parse_error("ERROR:Unknown error running sc.exe qc")
+				return win_parse_error("ERROR:Unknown error running sc.exe qc")
 			end
 		end
 		return service
@@ -89,14 +394,15 @@ module WindowsServices
 	# command executed by the service. Service name is case sensitive.  Hash
 	# keys are Name, Start, Command and Credentials.  Here for compatibility with meterp version
 	#
-	def service_info(name)
+	def shell_service_info(name)
 		service = {}
 		begin
-			h = service_query_config(name)
-			service['Name'] = h['SERVICE_NAME']
-			service["Startup"] = normalize_mode(h['START_TYPE'])
-			service['Command'] = h['BINARY_PATH_NAME']
-			service['Credentials'] = h['SERVICE_START_NAME']
+			h = shell_service_query_config(name)
+			return h if h[:error] # if there was an error w/ the config query, return the error_hash
+			service['Name'] = h[:service_name]
+			service["Startup"] = normalize_mode(h[:start_type])
+			service['Command'] = h[:binary_path_name]
+			service['Credentials'] = h[:service_start_name]
 		end
 		return service
 	end
@@ -108,15 +414,15 @@ module WindowsServices
 	# Service name is case sensitive.
 	# Hash keys match the keys returned by sc.exe qc <service_name>
 	# e.g returns {
-	# "SERVICE_NAME" => "winmgmt",
-	# "TYPE" => "20 WIN32_SHARE_PROCESS",
-	# "STATE" => "4 RUNNING,STOPPABLE,PAUSABLE,ACCEPTS_SHUTDOWN",
+	# :service_name => "winmgmt",
+	# :type => "20 WIN32_SHARE_PROCESS",
+	# :state => "4 RUNNING,STOPPABLE,PAUSABLE,ACCEPTS_SHUTDOWN",
 	# <...>
-	# "PID" = > "1088",
-	# "FLAGS" => nil}
+	# :pid = > "1088",
+	# :flags => nil}
 	# etc.  see sc queryex /? for more info
 	#
-	def service_query_ex(name)
+	def shell_service_query_ex(name)
 		service = {}
 		begin
 			cmd = "cmd.exe /c sc queryex #{name.chomp}"
@@ -135,12 +441,12 @@ module WindowsServices
 				# 
 				service = win_parse_results(results)
 			elsif results =~ /(^Error:.*|FAILED.*:)/
-				error_hash = win_parse_error(results)
+				return win_parse_error(results) # return an error_hash
 			elsif results =~ /SYNTAX:/
 				# Syntax error
-				error_hash = win_parse_error("ERROR:Syntax Error, cmd was #{cmd}")
+				return win_parse_error("ERROR:Syntax Error, cmd was #{cmd}")
 			else
-				error_hash = win_parse_error("ERROR:Unknown error running sc.exe")
+				return win_parse_error("ERROR:Unknown error running sc.exe")
 			end
 		end
 		return service
@@ -153,13 +459,13 @@ module WindowsServices
 	# could normalize it to just "RUNNING" if desired
 	#
 	
-	def service_query_state(name)
-		state = ""
+	def shell_service_query_state(name)
 		begin
 			h = service_query_ex(name)
-			state = h["STATE"]
+			return h if h[:error] # if there was an error with the query, return the error_hash
+			return h[:state] # otherwise return the state
 		end
-		return state
+		return nil
 	end
 
 	#
@@ -169,32 +475,22 @@ module WindowsServices
 	# corresponding setting. The name of the service is case sensitive.
 	#
 	#sc <server> config [service name] start= <boot|system|auto|demand|disabled|delayed-auto>
-	def service_change_startup(name,mode)
-		boo = false
-		# inty = 0 # original returned ints
+	def shell_service_change_startup(name,mode)
 		begin
 			mode = normalize_mode(mode)
 			cmd = "cmd.exe /c sc config #{name} start= #{mode}"
 			results = session.shell_command_token_win32(cmd)
 			if results =~ /SUCCESS/
-				boo = true
-				# inty = 0 #which it is already
+				return nil
 			elsif results =~ /(^Error:.*|FAILED.*:)/
-				error_hash = win_parse_error(results)
-				if error_hash['ERRVAL'] == 1056
-				#	inty = 1
-				elsif error_hash['ERRVAL'] == 1058
-				#	inty = 2
-				end
+				return win_parse_error(results) # return an error_hash
 			elsif results =~ /SYNTAX:/
 				# Syntax error
-				error_hash = win_parse_error("ERROR:Syntax Error, cmd was #{cmd}")
+				return win_parse_error("ERROR:Syntax Error, cmd was #{cmd}")
 			else
-				error_hash = win_parse_error("ERROR:Unknown error running sc.exe")
+				return win_parse_error("ERROR:Unknown error running sc.exe")
 			end
 		end
-		return boo
-		#return inty
 	end
 
 	#
@@ -204,36 +500,26 @@ module WindowsServices
 	# string, the path of the executable on the host that will execute at
 	# startup as string and the startup type as an int or string of 2/Auto,
 	# 3/Manual, or 4/disable, default is Auto.
-	# we should convert to take a hash so a variable number of options can be provided
+	# TODO: convert to take a hash so a variable number of options can be provided?
 	#
-	def service_create(name, display_name = "Server Service", executable_on_host = "", mode = "auto")
+	def shell_service_create(name, display_name = "Server Service", executable_on_host = "", mode = "auto")
 		#  sc create [service name] [binPath= ] <option1> <option2>...
-		boo = false
-		#inty = 0 # original returned an int
 		begin
 			mode = normalize_mode(mode)
 			cmd = "cmd.exe /c sc create #{name} binPath= \"#{executable_on_host}\" " +
 				"start= #{mode} DisplayName= \"#{display_name}\""
 			results = session.shell_command_token_win32(cmd)
 			if results =~ /SUCCESS/
-				boo = true
-				#inty = 0
+				return nil
 			elsif results =~ /(^Error:.*|FAILED.*:)/
-				error_hash = win_parse_error(results)
-				if error_hash['ERRVAL'] == 1056
-				#	inty = 1
-				elsif error_hash['ERRVAL'] == 1058
-				#	inty = 2
-				end
+				return win_parse_error(results) # return an error_hash
 			elsif results =~ /SYNTAX:/
 				# Syntax error
-				error_hash = win_parse_error("ERROR:Syntax Error, cmd was #{cmd}")
+				return win_parse_error("ERROR:Syntax Error, cmd was #{cmd}")
 			else
-				error_hash = win_parse_error("ERROR:Unknown error running sc.exe") 
+				return win_parse_error("ERROR:Unknown error running sc.exe") 
 			end
 		end
-		return boo
-		#return inty
 	end
 
 	#
@@ -242,31 +528,21 @@ module WindowsServices
 	# Returns 0 if service started, 1 if service is already started and 2 if
 	# service is disabled.
 	#
-	def service_start(name)
-		boo = false
-		# inty = 0 # original returned ints
+	def shell_service_start(name)
 		begin
 			cmd = "cmd.exe /c sc start #{name}"
 			results = session.shell_command_token_win32(cmd)
 			if results =~ /(SUCCESS|START_PENDING)/
-				boo = true
-				#inty = 0
+				return nil
 			elsif results =~ /(^Error:.*|FAILED.*:)/
-				error_hash = win_parse_error(results)
-				if error_hash['ERRVAL'] == 1056
-				#	inty = 1
-				elsif error_hash['ERRVAL'] == 1058
-				#	inty = 2
-				end
+				return win_parse_error(results) # return an error_hash
 			elsif results =~ /SYNTAX:/
 				# Syntax error
-				error_hash = win_parse_error("ERROR:Syntax Error, cmd was #{cmd}")
+				return win_parse_error("ERROR:Syntax Error, cmd was #{cmd}")
 			else
-				error_hash = win_parse_error("ERROR:Unknown error running sc.exe")  
+				return win_parse_error("ERROR:Unknown error running sc.exe")  
 			end
 		end
-		return boo
-		#return inty
 	end
 
 	#
@@ -275,196 +551,43 @@ module WindowsServices
 	# Returns 0 if service is stopped successfully, 1 if service is already
 	# stopped or disabled and 2 if the service can not be stopped.
 	#
-	def service_stop(name)
-		boo = false
-		# inty = 0 # original returned ints
+	def shell_service_stop(name)
 		begin
 			cmd = "cmd.exe /c sc stop #{name}"
 			results = session.shell_command_token_win32(cmd)
 			if results =~ /SUCCESS/
-				boo = true
-				#inty = 0
+				return nil
 			elsif results =~ /(^Error:.*|FAILED.*:)/
-				error_hash = win_parse_error(results)
-				if error_hash['ERRVAL'] == 1056
-				#	inty = 1
-				elsif error_hash['ERRVAL'] == 1058
-				#	inty = 2
-				end
+				return win_parse_error(results) # return an error_hash
 			elsif results =~ /SYNTAX:/
 				# Syntax error
-				error_hash = win_parse_error("ERROR:Syntax Error, cmd was #{cmd}")
+				return win_parse_error("ERROR:Syntax Error, cmd was #{cmd}")
 			else
-				error_hash = win_parse_error("ERROR:Unknown error running sc.exe")  
+				return win_parse_error("ERROR:Unknown error running sc.exe")  
 			end
 		end
-		return boo
-		#return inty
 	end
 
 	#
 	# Delete a service
 	#
-	def service_delete(name)
-		boo = false
-		#inty = 0 # original returned ints
+	def shell_service_delete(name)
 		begin
 			cmd = "cmd.exe /c sc delete #{name}"
 			results = session.shell_command_token_win32(cmd)
 			if results =~ /SUCCESS/
-				boo = true
-				#inty = 0 # does already
+				return nil
 			elsif match_arr = /^Error:.*|FAILED.*:/.match(results)
-				error_hash = win_parse_error(results)
-				if error_hash['ERRVAL'] == 1056
-				#	inty = 1
-				elsif error_hash['ERRVAL'] == 1058
-				#	inty = 2
-				end
+				return win_parse_error(results) # return an error_hash
 			elsif results =~ /SYNTAX:/
 				# Syntax error
-				error_hash = win_parse_error("ERROR:Syntax Error, cmd was #{cmd}")
+				return win_parse_error("ERROR:Syntax Error, cmd was #{cmd}")
 			else
-				error_hash = win_parse_error("ERROR:Unknown error running sc.exe")  
+				return win_parse_error("ERROR:Unknown error running sc.exe")  
 			end
 		end
-		return boo
-		#return inty
-	end
-
-	protected
-	#
-	# parses output of some windows CLI commands and returns hash with the keys/vals detected
-	# 	if the item has multiple values, they will all be returned in the val separated by commas
-	#
-		# Example would return:
-		# {
-		#	'SERVICE_NAME'	=> "dumbservice",
-		#	'DISPLAY_NAME'	=> "KernelSmith Dumb Service - User-mod",
-		#	'STATE'		=> "4  RUNNING",
-		#	'START_TYPE'	=> "2   AUTO_START",
-		#	'BINARY_PATH_NAME' => "C:\Windows\system32\svchost.exe -k LocalSystemNetworkRestricted",
-		#	'DEPENDENCIES'	=> "PlugPlay,DumberService"
-		#	<...etc...>
-		# }
-	def win_parse_results(str)
-		#
-		#--- sc.exe example (somewhat contrived)
-		#SERVICE_NAME: dumbservice
-		#DISPLAY_NAME: KernelSmith Dumb Service - User-mode
-	        #TYPE               : 20  WIN32_SHARE_PROCESS
-	        #STATE              : 4  RUNNING
-		#                        (NOT_STOPPABLE, NOT_PAUSABLE, IGNORES_SHUTDOWN)
-	        #START_TYPE         : 2   AUTO_START
-	        #BINARY_PATH_NAME   : C:\Windows\system32\svchost.exe -k LocalSystemNetworkRestricted
-		#DEPENDENCIES       : PlugPlay
-		#                   : DumberService
-		#SERVICE_START_NAME : LocalSystem
-	        #PID                : 368
-	        #FLAGS              :
-		#--- END sc.exe example
-		#
-		tip = false
-		hashish = Hash.new(nil)
-		lastkey = nil
-		str.each_line do |line|
-			line.chomp! 
-			line.gsub!("\t",' ') # lose any tabs
-			if (tip == true && line =~ /^ + :/)
-				# then this is probably a continuation of the previous, let's append to previous
-				# NOTE:  this will NOT pickup the (NOT_STOPPABLE, NOT_PAUSABLE), see next, but it
-				# 	 will pickup when there's multiple dependencies
-				arr = line.scan(/\w+/)
-				val = arr.join(',') # join with commas, tho there is probably only one item in arr
-				hashish[lastkey] << ",#{val}" # append to old val with preceding ','
-				# if that's confusing, maybe:  hashish[lastkey] = "#{hashish[lastkey]},#{val}"
-				tip = false
-			elsif (tip == true && line =~ /^ + \(/)
-				# then this is probably a continuation of the previous, let's append to previous
-				# NOTE:  this WILL pickup (NOT_STOPPABLE, NOT_PAUSABLE) etc
-				arr = line.scan(/\w+/) # put each "word" into an array
-				val = arr.join(',') # join back together with commas in case comma wasn't the sep
-				hashish[lastkey] << ",#{val}" # append to old val with preceding ','
-				# if that's confusing, maybe:  hashish[lastkey] = "#{hashish[lastkey]},#{val}"
-				tip = false			
-			elsif line =~ /^ *[A-Z]+[_]*[A-Z]+.*:/
-				tip = true
-				arr = line.split(':')
-				#print_status "Array split is #{arr.inspect}" if $blab
-				k = arr[0].strip
-				# grab all remaining fields for hash val in case ':' present in val
-				v = arr[1..-1].join(':').strip
-				# now add this entry to the hash
-				#print_status "Adding the following hash entry: #{k} => #{v}" if $blab
-				hashish[k] = v 
-				lastkey = k
-			end
-		end
-		return hashish
 	end
 	
-	#
-	# parses error output of some windows CLI commands and returns hash with the keys/vals detected
-	#  always returns hash as follow but ERRVAL only comes back from sc.exe using 'FAILED' keyword
-		# Example, returns:
-		# {
-		#	'ERROR'		=> "The specified service does not exist as an installed service",
-		#	'ERRVAL'	=> 1060
-		# }
-		# Note, most of the time the ERRVAL will be nil, it's not usually provided
-	def win_parse_error(str)
-		#--- sc.exe error example
-		#[SC] EnumQueryServicesStatus:OpenService FAILED 1060:
-		#
-		#The specified service does not exist as an installed service.
-		#--- END sc.exe error example
-		#
-		#--- reg.exe error example
-		#ERROR: Invalid key name.
-		#Type "REG QUERY /?" for usage.
-		#--- END reg.exe error example
-		#['ERROR'] => "INVALID KEY NAME."
-		#['ERRVAL'] => nil
-		hashish = {
-				'ERROR' => "Unknown Error",
-				'ERRVAL' => nil
-			  }
-		if ma = /^error:.*/i.match(str) # if line starts with Error: just pass to regular parser
-			hashish.merge!(win_parse_results(ma[0].upcase)) #upcase required to satisfy regular parser
-			# merge results.  Results from win_parse_results will override any duplicates in hashish
-		elsif ma = /FAILED +[0-9]+/.match(str) # look for 'FAILED ' followed by some numbers
-			sa = ma[0].split(' ')
-			hashish['ERRVAL'] = sa[1].chomp.to_i
-			#above intended to capture the numbers after the word 'FAILED' as ['ERRVAL']
-			ma = /^[^\[\n].+/.match(str)
-			hashish['ERROR'] = ma[0].chomp.strip
-			#above intended to capture first non-empty line not starting with '[' or \n into ['ERROR']
-		else
-			# do nothing, defaults are good
-		end
-		print_error "This error hash is optionally available:  #{hashish.pretty_inspect}"
-		return hashish
-	end
-	
-	#
-	# Ensures mode is what sc.exe wants to see, e.g. takes 2 or "AUTO_START" etc & returns "auto"  
-	#
-	def normalize_mode(mode)
-		mode = mode.to_s # someone could theoretically pass me a 2 instead of "2"
-		# accepted boot|system|auto|demand|disabled
-		if mode =~ /(0|BOOT)/i
-			mode = "boot"
-		elsif mode =~ /(1|SYSTEM)/i
-			mode = "system"
-		elsif mode =~ /(2|AUTO)/i
-			mode = "auto"
-		elsif mode =~ /(3|DEMAND|MANUAL)/i
-			mode = "demand"
-		elsif mode =~ /(4|DISABLED)/i
-			mode = "disabled"
-		end			
-	end
-
 end
 
 end
