@@ -243,7 +243,7 @@ protected
 					t = line.split(' ')[0].chomp #chomp for good measure
 					# check if reg returned "<NO NAME>", which splits to "<NO", if so nil instead
 					t = nil if t == "<NO"
-					return t
+					t
 				end
 			else
 				return win_parse_error("ERROR:Unknown error running #{cmd}")

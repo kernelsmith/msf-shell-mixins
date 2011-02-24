@@ -130,6 +130,8 @@ module WindowsServices
 		
 		(session.sys.registry and session.railgun)
 	end
+	# egypt:  
+	# begin; do meterp crap if (session.sys and session.sys.registry and session.railgun); rescue NoMethodError; do shell crap; end
 	
 	### meterpreter versions ###
 	
