@@ -1,0 +1,4 @@
+- See what the nil changes will break in post and meterp scripts
+- Add boolean? methods to accomodate, like service_exist? registry_val_exist? registry_key_exist? and alias them to present? etc
+- Implement the methods that the shell version supports that the meterp version doesn't (the NOTIMP ones) -- might need Carlos' help
+- Test with Java/PHP meterps
