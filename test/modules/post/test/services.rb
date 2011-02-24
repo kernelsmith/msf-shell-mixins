@@ -47,6 +47,11 @@ class Metasploit3 < Msf::Post
 		print_status("TESTING service_list")
 		results = service_list
 		print_status("RESULTS: #{results.class} #{results.pretty_inspect}")
+		
+		print_status()
+		print_status("TESTING service_list_running")
+		results = service_list_running
+		print_status("RESULTS: #{results.class} #{results.pretty_inspect}")
 
 		print_status()
 		print_status("TESTING service_info on servicename: #{datastore["QSERVICE"]}")

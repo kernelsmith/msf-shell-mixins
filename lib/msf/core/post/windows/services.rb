@@ -10,17 +10,21 @@ module WindowsServices
 	include ::Msf::Post::Registry
 	
 	NOTIMP = "This method has not been implemented yet"
-
-	#
-	# List all Windows Services present. Returns an Array containing the names
-	# of the services.
-	#
 	
 	def service_list
 		if session_has_services_depend?
 			meterpreter_service_list
 		else
 			shell_service_list
+		end
+	end
+	
+	def service_list_running
+		if session_has_services_depend?
+			#meterpreter_service_list_running
+			NOTIMP
+		else
+			shell_service_list_running
 		end
 	end
 	
@@ -127,14 +131,20 @@ module WindowsServices
 	#
 	def session_has_services_depend?
 		return false if session.type == "shell" # shell is bad enough, otherwise check dependencies
-		
-		(session.sys.registry and session.railgun)
+		begin
+			return true if (session.sys.registry and session.railgun)
+		rescue NoMethodError
+			return false
+		end
 	end
-	# egypt:  
-	# begin; do meterp crap if (session.sys and session.sys.registry and session.railgun); rescue NoMethodError; do shell crap; end
 	
 	### meterpreter versions ###
 	
+	#
+	# List all Windows Services present. Returns an Array containing the names
+	# of the services, whether they are running or not.
+	# TODO:  On failure return error hash?
+	#
 	def meterpreter_service_list
 		serviceskey = "HKLM\\SYSTEM\\CurrentControlSet\\Services"
 		threadnum = 0
@@ -157,7 +167,6 @@ module WindowsServices
 				threadnum = 0
 			end
 		end
-
 		return services
 	end
 
@@ -169,6 +178,7 @@ module WindowsServices
 	# keys are Name, Start, Command and Credentials.
 	#
 	def meterpreter_service_info(name)
+		# add rescue?
 		service = {}
 		servicekey = "HKLM\\SYSTEM\\CurrentControlSet\\Services\\#{name.chomp}"
 		service["Name"] = registry_getvaldata(servicekey,"DisplayName").to_s
@@ -182,13 +192,18 @@ module WindowsServices
 	#
 	# Changes a given service startup mode, name must be provided and the mode.
 	#
-	# Mode is a string with either auto, manual or disable for the
-	# corresponding setting. The name of the service is case sensitive.
+	# Mode is a string with either auto, manual or disable, or corresponding
+	# integer (see normalize_mode). The name of the service is case sensitive.
 	#
 	def meterpreter_service_change_startup(name,mode)
 		servicekey = "HKLM\\SYSTEM\\CurrentControlSet\\Services\\#{name.chomp}"
-		mode = normalize_mode(mode)
-		registry_setvaldata(servicekey,"Start",mode.to_s,"REG_DWORD")
+		mode = normalize_mode(mode,true).to_s # the string version of the int, e.g. "2"
+		begin
+			registry_setvaldata(servicekey,"Start",mode,"REG_DWORD")
+			return nil
+		rescue::Exception => e
+			return win_parse_error("ERROR:#{e}") # return an error_hash	
+		end
 	end
 
 	#
@@ -197,7 +212,10 @@ module WindowsServices
 	# It takes as values the service name as string, the display name as
 	# string, the path of the executable on the host that will execute at
 	# startup as string and the startup mode as an integer of 2 for Auto, 3 for
-	# Manual or 4 for Disable, but strings will converted when possible, default is Auto.
+	# Manual or 4 for Disable, but strings will converted when possible using normalize_mode.
+	# Default is Auto.
+	#
+	# Returns nil if success, otherwise an error hash {:errval => int,:error => 'Error message'}
 	#
 	def meterpreter_service_create(name, display_name, executable_on_host,mode=2)
 		mode = normalize_mode(mode,true)
@@ -212,7 +230,7 @@ module WindowsServices
 			#SERVICE_START=0x0010  SERVICE_WIN32_OWN_PROCESS= 0X00000010
 			#SERVICE_AUTO_START = 2 SERVICE_ERROR_IGNORE = 0
 			if newservice["GetLastError"] == 0
-				return 0
+				return nil
 			elsif newservice["GetLastError"] == 1072
 				#return 1
 				return {:errval => 1072 , :error => 'The specified service has been marked for deletion'}
@@ -227,8 +245,7 @@ module WindowsServices
 	#
 	# Start a service.
 	#
-	# Returns 0 if service started, 1 if service is already started and 2 if
-	# service is disabled.
+	# Returns nil if success, otherwise an error hash {:errval => int,:error => 'Error message'}
 	#
 	def meterpreter_service_start(name)
 		adv = client.railgun.get_dll('advapi32')
@@ -246,22 +263,20 @@ module WindowsServices
 		adv.CloseServiceHandle(servhandleret["return"])
 		adv.CloseServiceHandle(manag["return"])
 		if retval["GetLastError"] == 0
-			return 0
+			return nil
 		elsif retval["GetLastError"] == 1056
 			#return 1
 			return {:errval => 1056 , :error => 'An instance of the service is already running.'}
 		elsif retval["GetLastError"] == 1058
 			#return 2
-			return {:errval => 1058 , :error => 'The service cannot be started, either because it 
-			is disabled or because it has no enabled devices associated with it.'}
+			return {:errval => 1058 , :error => 'The service cannot be started, either because it is disabled or because it has no enabled devices associated with it.'}
 		end
 	end
 
 	#
 	# Stop a service.
 	#
-	# Returns 0 if service is stopped successfully, 1 if service is already
-	# stopped or disabled and 2 if the service can not be stopped.
+	# Returns nil if success, otherwise an error hash {:errval => int,:error => 'Error message'}
 	#
 	def meterpreter_service_stop(name)
 		adv = client.railgun.get_dll('advapi32')
@@ -279,7 +294,7 @@ module WindowsServices
 		adv.CloseServiceHandle(servhandleret["return"])
 		adv.CloseServiceHandle(manag["return"])
 		if retval["GetLastError"] == 0
-			return 0
+			return nil
 		elsif retval["GetLastError"] == 1062
 			#return 1
 			return {:errval => 1062 ,:error => 'The service has not been started.'}
@@ -291,6 +306,7 @@ module WindowsServices
 
 	#
 	# Delete a service by deleting the key in the registry.
+	# Returns nil if success, otherwise an error hash {:errval => int,:error => 'Error message'}
 	#
 	def meterpreter_service_delete(name)
 		begin
@@ -298,13 +314,12 @@ module WindowsServices
 			if registry_enumkeys(basekey).index(name)
 				servicekey = "HKLM\\SYSTEM\\CurrentControlSet\\Services\\#{name.chomp}"
 				registry_deletekey(servicekey)
-				return true
+				return nil
 			else
-				return false
+				return win_parse_error("ERROR:Could not find #{name} as a registered service") # return an error_hash
 			end
 		rescue::Exception => e
-			print_error(e)
-			return false
+			return win_parse_error("ERROR:#{e}") # return an error_hash
 		end
 	end
 	
@@ -312,12 +327,46 @@ module WindowsServices
 	
 	#
 	# List all Windows Services present.  Returns an Array containing the names
-	# of the services.
+	# of the services, whether they are running or not.
+	# On failure returns an error hash
 	#
 	def shell_service_list
 		#SERVICE_NAME: Winmgmt
 		#DISPLAY_NAME: Windows Management Instrumentation
-        # <...etc...>
+        	# <...etc...>
+		#
+		services = []
+		begin
+			cmd = "cmd.exe /c sc query type= service state= all"
+			results = session.shell_command_token_win32(cmd)
+			if results =~ /SERVICE_NAME:/
+				results.each_line do |line| 
+					if line =~ /SERVICE_NAME:/
+						h = win_parse_results(line)
+						services << h[:service_name]
+					end 
+				end
+			elsif results =~ /(^Error:.*|FAILED.*:)/
+				return win_parse_error(results) # return an error_hash
+			elsif results =~ /SYNTAX:/
+				# Syntax error
+				return win_parse_error("ERROR:Syntax Error, cmd was #{cmd}")
+			else
+				return win_parse_error("ERROR:Unknown error running sc.exe")
+			end
+		end
+		return services
+	end
+	
+	#
+	# List all running Windows Services.  Returns an Array containing the names
+	# of the running
+	# On failure returns an error hash
+	#
+	def shell_service_list_running
+		#SERVICE_NAME: Winmgmt
+		#DISPLAY_NAME: Windows Management Instrumentation
+        	# <...etc...>
 		#
 		services = []
 		begin
@@ -355,6 +404,8 @@ module WindowsServices
 	# <...>
 	# :dependencies => "RPCSS,OTHER",
 	# :service_start_name => "LocalSystem" }
+	#
+	# On failure returns an error hash
 	# etc.  see sc qc /? for more info
 	#
 	def shell_service_query_config(name)
@@ -396,6 +447,8 @@ module WindowsServices
 	# command executed by the service. Service name is case sensitive.  Hash
 	# keys are Name, Start, Command and Credentials.  Here for compatibility with meterp version
 	#
+	# On failure returns an error hash
+	#
 	def shell_service_info(name)
 		service = {}
 		begin
@@ -422,6 +475,8 @@ module WindowsServices
 	# <...>
 	# :pid = > "1088",
 	# :flags => nil}
+	#
+	# On failure returns an error hash
 	# etc.  see sc queryex /? for more info
 	#
 	def shell_service_query_ex(name)
@@ -458,7 +513,8 @@ module WindowsServices
 	# Get Windows Service state only. 
 	#
 	# returns a string with state info such as "4 RUNNING,STOPPABLE,PAUSABLE,ACCEPTS_SHUTDOWN"
-	# could normalize it to just "RUNNING" if desired
+	# could normalize it to just "RUNNING" if desired, but not currently
+	# On failure returns error hash
 	#
 	
 	def shell_service_query_state(name)
@@ -475,6 +531,7 @@ module WindowsServices
 	#
 	# Mode is an int or string with either 2/auto, 3/manual or 4/disable for the
 	# corresponding setting. The name of the service is case sensitive.
+	# Returns nil if success, otherwise an error hash {:errval => int,:error => 'Error message'}
 	#
 	#sc <server> config [service name] start= <boot|system|auto|demand|disabled|delayed-auto>
 	def shell_service_change_startup(name,mode)
@@ -502,6 +559,7 @@ module WindowsServices
 	# string, the path of the executable on the host that will execute at
 	# startup as string and the startup type as an int or string of 2/Auto,
 	# 3/Manual, or 4/disable, default is Auto.
+	# Returns nil if success, otherwise an error hash {:errval => int,:error => 'Error message'}
 	# TODO: convert to take a hash so a variable number of options can be provided?
 	#
 	def shell_service_create(name, display_name = "Server Service", executable_on_host = "", mode = "auto")
@@ -527,8 +585,7 @@ module WindowsServices
 	#
 	# Start a service.
 	#
-	# Returns 0 if service started, 1 if service is already started and 2 if
-	# service is disabled.
+	# Returns nil if success, otherwise an error hash {:errval => int,:error => 'Error message'}
 	#
 	def shell_service_start(name)
 		begin
@@ -550,8 +607,7 @@ module WindowsServices
 	#
 	# Stop a service.
 	#
-	# Returns 0 if service is stopped successfully, 1 if service is already
-	# stopped or disabled and 2 if the service can not be stopped.
+	# Returns nil if success, otherwise an error hash {:errval => int,:error => 'Error message'}
 	#
 	def shell_service_stop(name)
 		begin
@@ -572,6 +628,8 @@ module WindowsServices
 
 	#
 	# Delete a service
+	#
+	# Returns nil if success, otherwise an error hash {:errval => int,:error => 'Error message'}
 	#
 	def shell_service_delete(name)
 		begin

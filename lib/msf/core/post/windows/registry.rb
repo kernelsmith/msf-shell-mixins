@@ -136,11 +136,128 @@ protected
 	#
 	def session_has_registry_ext?
 		return false if session.type == "shell" # shell is bad enough, otherwise check dependencies
-		#print_status("---Checking session.sys-> #{session.sys.to_s} and respond_to-> #{session.sys.respond_to?(:registry).to_s}") 
-		session.sys.registry
-		
+		begin
+			return true if session.sys.registry # seems like registry is all we need
+		rescue NoMethodError
+			return false
+		end
 	end
 
+	##
+	# Native Meterpreter-specific registry manipulation methods
+	##
+
+	def meterpreter_registry_createkey(key)
+		begin
+			root_key, base_key = session.sys.registry.splitkey(key)
+			open_key = session.sys.registry.create_key(root_key, base_key)
+			open_key.close
+			return nil
+		rescue Rex::Post::Meterpreter::RequestError => e
+			return win_parse_error("ERROR:#{e}") # return an error_hash
+		end
+	end
+
+	def meterpreter_registry_deleteval(key, valname)
+		begin
+			root_key, base_key = session.sys.registry.splitkey(key)
+			open_key = session.sys.registry.open_key(root_key, base_key, KEY_WRITE)
+			open_key.delete_value(valname)
+			open_key.close
+			return nil
+		rescue Rex::Post::Meterpreter::RequestError => e
+			return win_parse_error("ERROR:#{e}") # return an error_hash
+		end
+	end
+
+	def meterpreter_registry_deletekey(key)
+		begin
+			root_key, base_key = session.sys.registry.splitkey(key)
+			deleted = session.sys.registry.delete_key(root_key, base_key)
+			return nil if deleted
+			return win_parse_error("ERROR:#{deleted}") # return an error_hash
+		rescue Rex::Post::Meterpreter::RequestError => e
+			return win_parse_error("ERROR:#{e}") # return an error_hash
+		end
+	end
+
+	def meterpreter_registry_enumkeys(key)
+		subkeys = []
+		begin
+			root_key, base_key = session.sys.registry.splitkey(key)
+			open_key = session.sys.registry.open_key(root_key, base_key, KEY_READ)
+			keys = open_key.enum_key
+			keys.each { |subkey|
+				subkeys << subkey
+			}
+			open_key.close
+		rescue Rex::Post::Meterpreter::RequestError => e
+			return win_parse_error("ERROR:#{e}") # return an error_hash
+		end
+		return subkeys
+	end
+
+	def meterpreter_registry_enumvals(key)
+		values = []
+		begin
+			vals = {}
+			root_key, base_key = session.sys.registry.splitkey(key)
+			open_key = session.sys.registry.open_key(root_key, base_key, KEY_READ)
+			vals = open_key.enum_value
+			vals.each { |val|
+				values <<  val.name
+			}
+			open_key.close
+		rescue Rex::Post::Meterpreter::RequestError => e
+			return win_parse_error("ERROR:#{e}") # return an error_hash
+		end
+		return values
+	end
+
+	def meterpreter_registry_getvaldata(key, valname)
+		value = nil
+		begin
+			root_key, base_key = session.sys.registry.splitkey(key)
+			open_key = session.sys.registry.open_key(root_key, base_key, KEY_READ)
+			v = open_key.query_value(valname)
+			value = v.data
+			open_key.close
+		rescue Rex::Post::Meterpreter::RequestError => e
+			return win_parse_error("ERROR:#{e}") # return an error_hash
+		end
+		return value
+	end
+
+	def meterpreter_registry_getvalinfo(key, valname)
+		value = {}
+		key = normalize_key(key)
+		begin
+			root_key, base_key = session.sys.registry.splitkey(key)
+			open_key = session.sys.registry.open_key(root_key, base_key, KEY_READ)
+			v = open_key.query_value(valname)
+			value["Data"] = v.data
+			value["Type"] = v.type
+			open_key.close
+		rescue Rex::Post::Meterpreter::RequestError => e
+			return win_parse_error("ERROR:#{e}") # return an error_hash
+		end
+		return value
+	end
+
+	def meterpreter_registry_setvaldata(key, valname, data, type)
+		key = normalize_key(key)
+		begin
+			root_key, base_key = session.sys.registry.splitkey(key)
+			open_key = session.sys.registry.open_key(root_key, base_key, KEY_WRITE)
+			open_key.set_value(valname, session.sys.registry.type2str(type), data)
+			open_key.close
+			return nil
+		rescue Rex::Post::Meterpreter::RequestError => e
+			return win_parse_error("ERROR:#{e}") # return an error_hash
+		end
+	end
+	
+	### Shell Versions ###
 
 	##
 	# Generic registry manipulation methods based on reg.exe
@@ -298,122 +415,6 @@ protected
 			else
 				return win_parse_error("ERROR:Unknown error running #{cmd}")
 			end
-		end
-	end
-
-
-	##
-	# Meterpreter-specific registry manipulation methods
-	##
-
-
-	def meterpreter_registry_createkey(key)
-		begin
-			root_key, base_key = session.sys.registry.splitkey(key)
-			open_key = session.sys.registry.create_key(root_key, base_key)
-			open_key.close
-			return nil
-		rescue Rex::Post::Meterpreter::RequestError => e
-			return win_parse_error("ERROR:#{e}") # return an error_hash
-		end
-	end
-
-	def meterpreter_registry_deleteval(key, valname)
-		begin
-			root_key, base_key = session.sys.registry.splitkey(key)
-			open_key = session.sys.registry.open_key(root_key, base_key, KEY_WRITE)
-			open_key.delete_value(valname)
-			open_key.close
-			return nil
-		rescue Rex::Post::Meterpreter::RequestError => e
-			return win_parse_error("ERROR:#{e}") # return an error_hash
-		end
-	end
-
-	def meterpreter_registry_deletekey(key)
-		begin
-			root_key, base_key = session.sys.registry.splitkey(key)
-			deleted = session.sys.registry.delete_key(root_key, base_key)
-			return nil if deleted
-			return win_parse_error("ERROR:#{deleted}") # return an error_hash
-		rescue Rex::Post::Meterpreter::RequestError => e
-			return win_parse_error("ERROR:#{e}") # return an error_hash
-		end
-	end
-
-	def meterpreter_registry_enumkeys(key)
-		subkeys = []
-		begin
-			root_key, base_key = session.sys.registry.splitkey(key)
-			open_key = session.sys.registry.open_key(root_key, base_key, KEY_READ)
-			keys = open_key.enum_key
-			keys.each { |subkey|
-				subkeys << subkey
-			}
-			open_key.close
-		rescue Rex::Post::Meterpreter::RequestError => e
-			return win_parse_error("ERROR:#{e}") # return an error_hash
-		end
-		return subkeys
-	end
-
-	def meterpreter_registry_enumvals(key)
-		values = []
-		begin
-			vals = {}
-			root_key, base_key = session.sys.registry.splitkey(key)
-			open_key = session.sys.registry.open_key(root_key, base_key, KEY_READ)
-			vals = open_key.enum_value
-			vals.each { |val|
-				values <<  val.name
-			}
-			open_key.close
-		rescue Rex::Post::Meterpreter::RequestError => e
-			return win_parse_error("ERROR:#{e}") # return an error_hash
-		end
-		return values
-	end
-
-	def meterpreter_registry_getvaldata(key, valname)
-		value = nil
-		begin
-			root_key, base_key = session.sys.registry.splitkey(key)
-			open_key = session.sys.registry.open_key(root_key, base_key, KEY_READ)
-			v = open_key.query_value(valname)
-			value = v.data
-			open_key.close
-		rescue Rex::Post::Meterpreter::RequestError => e
-			return win_parse_error("ERROR:#{e}") # return an error_hash
-		end
-		return value
-	end
-
-	def meterpreter_registry_getvalinfo(key, valname)
-		value = {}
-		key = normalize_key(key)
-		begin
-			root_key, base_key = session.sys.registry.splitkey(key)
-			open_key = session.sys.registry.open_key(root_key, base_key, KEY_READ)
-			v = open_key.query_value(valname)
-			value["Data"] = v.data
-			value["Type"] = v.type
-			open_key.close
-		rescue Rex::Post::Meterpreter::RequestError => e
-			return win_parse_error("ERROR:#{e}") # return an error_hash
-		end
-		return value
-	end
-
-	def meterpreter_registry_setvaldata(key, valname, data, type)
-		key = normalize_key(key)
-		begin
-			root_key, base_key = session.sys.registry.splitkey(key)
-			open_key = session.sys.registry.open_key(root_key, base_key, KEY_WRITE)
-			open_key.set_value(valname, session.sys.registry.type2str(type), data)
-			open_key.close
-			return nil
-		rescue Rex::Post::Meterpreter::RequestError => e
-			return win_parse_error("ERROR:#{e}") # return an error_hash
 		end
 	end
 

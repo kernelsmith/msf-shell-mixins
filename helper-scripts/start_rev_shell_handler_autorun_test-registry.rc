@@ -8,5 +8,5 @@ set autorun post/windows/test/test-registry
 set exitonsession false
 exploit -j -z
 loadpath test/modules
-use post/windows/test/registry
+use post/test/registry
 set SESSION 1
