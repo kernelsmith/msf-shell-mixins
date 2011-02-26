@@ -272,10 +272,12 @@ protected
 			if results =~ /The operation completed successfully/
 				return nil
 			elsif results =~ /^Error:/
-				return win_parse_error(results) # return an error_hash
+				win_parse_error(results,cmd,__method__) # raises error
 			else
-				return win_parse_error("ERROR:Unknown error running #{cmd}") 
+				raise Msf::Post::Windows::CliParse::RequestError(__method__,"Unparsable error",nil,cmd)
 			end
+		rescue Msf::Post::Windows::CliParse::RequestError => e
+			print_error(e.to_s)
 		end
 	end
 
@@ -288,10 +290,12 @@ protected
 			if results =~ /The operation completed successfully/
 				return nil
 			elsif results =~ /^Error:/
-				return win_parse_error(results) # return an error_hash
+				win_parse_error(results,cmd,__method__) # raises error
 			else
-				return win_parse_error("ERROR:Unknown error running #{cmd}")
+				raise Msf::Post::Windows::CliParse::RequestError(__method__,"Unparsable error",nil,cmd)
 			end
+		rescue Msf::Post::Windows::CliParse::RequestError => e
+			print_error(e.to_s)
 		end
 	end
 
@@ -304,10 +308,12 @@ protected
 			if results =~ /The operation completed successfully/
 				return nil
 			elsif results =~ /^Error:/
-				return win_parse_error(results) # return an error_hash
+				win_parse_error(results,cmd,__method__) # raises error
 			else
-				return win_parse_error("ERROR:Unknown error running #{cmd}") 
+				raise Msf::Post::Windows::CliParse::RequestError(__method__,"Unparsable error",nil,cmd)
 			end
+		rescue Msf::Post::Windows::CliParse::RequestError => e
+			print_error(e.to_s)
 		end
 	end
 
@@ -322,7 +328,7 @@ protected
 			results = session.shell_command_token_win32(cmd)
 			if results
 				if results =~ /^Error:/
-					return win_parse_error(results) # return an error_hash
+					win_parse_error(results,cmd,__method__) # raises error
 				else # would like to use elsif results =~ /#{key}/  but can't figure it out
 					results.each_line do |line|
 						# now let's keep the ones that have a count = bslashes+1
@@ -336,8 +342,10 @@ protected
 				#	return win_parse_error("ERROR:Unrecognizable results from #{cmd}")
 				end 
 			else
-				return win_parse_error("ERROR:Unknown error running #{cmd}")
+				raise Msf::Post::Windows::CliParse::RequestError(__method__,"Unparsable error",nil,cmd)
 			end
+		rescue Msf::Post::Windows::CliParse::RequestError => e
+			print_error(e.to_s)
 		end
 		return subkeys
 	end
@@ -352,7 +360,7 @@ protected
 			cmd = "cmd.exe /c reg query \"#{key}\""
 			results = session.shell_command_token_win32(cmd)
 			if results =~ /^Error:/
-				return win_parse_error(results) # return an error_hash
+				win_parse_error(results,cmd,__method__) # raises error
 			elsif values = results.scan(/^ +.*[#{reg_data_types}].*/)
 				# yanked the lines with legit REG value types like REG_SZ
 				# now let's parse out the names (first field basically)
@@ -363,8 +371,10 @@ protected
 					t
 				end
 			else
-				return win_parse_error("ERROR:Unknown error running #{cmd}")
+				raise Msf::Post::Windows::CliParse::RequestError(__method__,"Unparsable error",nil,cmd)
 			end
+		rescue Msf::Post::Windows::CliParse::RequestError => e
+			print_error(e.to_s)
 		end
 		return values
 	end
@@ -393,10 +403,12 @@ protected
 				value["Data"] = split_arr[2]
 				# need to test to ensure all results can be parsed this way
 			elsif results =~ /^Error:/
-				return win_parse_error(results) # return an error_hash
+				win_parse_error(results,cmd,__method__) # raises error
 			else
-				return win_parse_error("ERROR:Unknown error running #{cmd}")
+				raise Msf::Post::Windows::CliParse::RequestError(__method__,"Unparsable error",nil,cmd)
 			end
+		rescue Msf::Post::Windows::CliParse::RequestError => e
+			print_error(e.to_s)
 		end
 		return value
 	end
@@ -411,10 +423,12 @@ protected
 			if results =~ /The operation completed successfully/
 				return nil
 			elsif results =~ /^Error:/
-				return win_parse_error(results) # return an error_hash
+				win_parse_error(results,cmd,__method__) # raises error
 			else
-				return win_parse_error("ERROR:Unknown error running #{cmd}")
+				raise Msf::Post::Windows::CliParse::RequestError(__method__,"Unparsable error",nil,cmd)
 			end
+		rescue Msf::Post::Windows::CliParse::RequestError => e
+			print_error(e.to_s)
 		end
 	end
 

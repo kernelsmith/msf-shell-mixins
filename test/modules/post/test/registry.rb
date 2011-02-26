@@ -83,16 +83,9 @@ class Metasploit3 < Msf::Post
 
 		print_status()
 		print_status("Running registry_getvalinfo for deleted key:#{datastore['KEY']}\\test, val:test")
-		print_status("NOTE: this should return an error hash where :error is cannot find file...")
+		print_status("NOTE: this OUGHT to return an error ~ cannot find key or value...")
 		results = registry_getvalinfo("#{datastore['KEY']}\\test", "test")
 		print_status("RESULTS:  #{results.class} #{results.inspect}")
-		if (results[:error] =~ /SYSTEM WAS UNABLE TO FIND/i)
-			print_status("Delete worked correctly")
-		elsif (results == nil)
-			print_error("reported failure, the previous deletekey did not work")
-		else
-			print_error("the previous deletekey might not have worked, check the error message")
-		end
 
 		print_status()
 		print_status("TESTING:  registry_enumkeys")

@@ -33,8 +33,38 @@ module CliParse
 	#	<...etc...>
 	# }
 	#
+	
+	require 'msf/windows_error'
+	require 'rex/logging'
+	require 'rex/exceptions'
+	
+	#Msf::Post::Windows::CliParse::RequestError
+	class RequestError < ArgumentError
+        def initialize(method, einfo, ecode=nil, clicmd=nil)
+                @method = method
+                @info = einfo
+                @code   = ecode 
+                @clicmd = clicmd || "Unknown shell command"
+        end
+
+        def to_s
+                "#{@method}: Operation failed: #{@info}:#{@code} while running #{@clicmd}"
+        end
+
+        # The method that failed.
+        attr_reader :method
+
+        # The error info that occurred, typically a windows error message.
+        attr_reader :info
+
+        # The error result that occurred, typically a windows error code.
+        attr_reader :code
+        
+        # The shell command that caused the error, if known
+        attr_reader :clicmd
+	end
+	
 	def win_parse_results(str)
-		#print_status "Parsing results string: #{str}" if $blab
 		tip = false
 		hashish = {}
 		lastkey = nil
@@ -101,12 +131,13 @@ module CliParse
 	#   :errval => nil
 	# }
 	#
-	def win_parse_error(str)
+	def win_parse_error(results,cmd,method)
 		hashish = {
 				:error => "Unknown Error",
-				:errval => 9999
+				:errval => nil
 			  }
-		if ma = /^error:.*/i.match(str) # if line starts with Error: just pass to regular parser
+		# parse the results
+		if ma = /^error:.*/i.match(results) # if line starts with Error: just pass to regular parser
 			hashish.merge!(win_parse_results(ma[0].upcase)) #upcase required to satisfy regular parser
 			# merge results.  Results from win_parse_results will override any duplicates in hashish
 		elsif ma = /FAILED +[0-9]+/.match(str) # look for 'FAILED ' followed by some numbers
@@ -119,7 +150,8 @@ module CliParse
 		else
 			# do nothing, defaults are good
 		end
-		return hashish
+		#raise Msf::Post::Windows::CliParse::RequestError.new(method,info,code,cmd)
+		raise Msf::Post::Windows::CliParse::RequestError.new(method,hashish[:error],hashish[:errval],cmd)
 	end
 
 end

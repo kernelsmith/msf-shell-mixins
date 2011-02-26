@@ -138,7 +138,9 @@ module WindowsServices
 		end
 	end
 	
-	### meterpreter versions ###
+	##
+	# Native Meterpreter-specific windows service manipulation methods
+	##
 	
 	#
 	# List all Windows Services present. Returns an Array containing the names
