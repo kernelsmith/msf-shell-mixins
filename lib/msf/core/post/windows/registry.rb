@@ -12,7 +12,7 @@ module Registry
 	# Create the given registry key
 	#
 	def registry_createkey(key)
-		if session_has_registry_ext?
+		if session_has_registry_ext
 			meterpreter_registry_createkey(key)
 		else
 			shell_registry_createkey(key)
@@ -25,7 +25,7 @@ module Registry
 	# returns true if succesful
 	#
 	def registry_deleteval(key, valname)
-		if session_has_registry_ext?
+		if session_has_registry_ext
 			meterpreter_registry_deleteval(key, valname)
 		else
 			shell_registry_deleteval(key, valname)
@@ -38,7 +38,7 @@ module Registry
 	# returns true if succesful
 	#
 	def registry_deletekey(key)
-		if session_has_registry_ext?
+		if session_has_registry_ext
 			meterpreter_registry_deletekey(key)
 		else
 			shell_registry_deletekey(key)
@@ -49,7 +49,7 @@ module Registry
 	# Return an array of subkeys for the given registry key
 	#
 	def registry_enumkeys(key)
-		if session_has_registry_ext?
+		if session_has_registry_ext
 			meterpreter_registry_enumkeys(key)
 		else
 			shell_registry_enumkeys(key)
@@ -60,7 +60,7 @@ module Registry
 	# Return an array of value names for the given registry key
 	#
 	def registry_enumvals(key)
-		if session_has_registry_ext?
+		if session_has_registry_ext
 			meterpreter_registry_enumvals(key)
 		else
 			shell_registry_enumvals(key)
@@ -71,7 +71,7 @@ module Registry
 	# Return the data of a given registry key and value
 	#
 	def registry_getvaldata(key, valname)
-		if session_has_registry_ext?
+		if session_has_registry_ext
 			meterpreter_registry_getvaldata(key, valname)
 		else
 			shell_registry_getvaldata(key, valname)
@@ -83,7 +83,7 @@ module Registry
 	#
 	#
 	def registry_getvalinfo(key,valname)
-		if session_has_registry_ext?
+		if session_has_registry_ext
 			meterpreter_registry_getvalinfo(key, valname)
 		else
 			shell_registry_getvalinfo(key, valname)
@@ -96,7 +96,7 @@ module Registry
 	# returns true if succesful
 	#
 	def registry_setvaldata(key, valname, data, type)
-		if session_has_registry_ext?
+		if session_has_registry_ext
 			meterpreter_registry_setvaldata(key, valname, data, type)
 		else
 			shell_registry_setvaldata(key, valname, data, type)
@@ -134,10 +134,9 @@ protected
 	#
 	# Determines whether the session can use meterpreter registry methods
 	#
-	def session_has_registry_ext?
-		return false if session.type == "shell" # shell is bad enough, otherwise check dependencies
+	def session_has_registry_ext
 		begin
-			return true if session.sys.registry # seems like registry is all we need
+			return !!(session.sys and session.sys.registry)
 		rescue NoMethodError
 			return false
 		end
@@ -154,7 +153,7 @@ protected
 			open_key.close
 			return nil
 		rescue Rex::Post::Meterpreter::RequestError => e
-			return win_parse_error("ERROR:#{e}") # return an error_hash
+			print_error(e.to_s)
 		end
 	end
 
@@ -166,7 +165,7 @@ protected
 			open_key.close
 			return nil
 		rescue Rex::Post::Meterpreter::RequestError => e
-			return win_parse_error("ERROR:#{e}") # return an error_hash
+			print_error(e.to_s)
 		end
 	end
 
@@ -175,9 +174,9 @@ protected
 			root_key, base_key = session.sys.registry.splitkey(key)
 			deleted = session.sys.registry.delete_key(root_key, base_key)
 			return nil if deleted
-			return win_parse_error("ERROR:#{deleted}") # return an error_hash
+			raise Rex::Post::Meterpreter::RequestError.new(__method__,deleted,nil)
 		rescue Rex::Post::Meterpreter::RequestError => e
-			return win_parse_error("ERROR:#{e}") # return an error_hash
+			print_error(e.to_s)
 		end
 	end
 
@@ -192,7 +191,7 @@ protected
 			}
 			open_key.close
 		rescue Rex::Post::Meterpreter::RequestError => e
-			return win_parse_error("ERROR:#{e}") # return an error_hash
+			print_error(e.to_s)
 		end
 		return subkeys
 	end
@@ -209,7 +208,7 @@ protected
 			}
 			open_key.close
 		rescue Rex::Post::Meterpreter::RequestError => e
-			return win_parse_error("ERROR:#{e}") # return an error_hash
+			print_error(e.to_s)
 		end
 		return values
 	end
@@ -223,7 +222,7 @@ protected
 			value = v.data
 			open_key.close
 		rescue Rex::Post::Meterpreter::RequestError => e
-			return win_parse_error("ERROR:#{e}") # return an error_hash
+			print_error(e.to_s)
 		end
 		return value
 	end
@@ -239,7 +238,7 @@ protected
 			value["Type"] = v.type
 			open_key.close
 		rescue Rex::Post::Meterpreter::RequestError => e
-			return win_parse_error("ERROR:#{e}") # return an error_hash
+			print_error(e.to_s)
 		end
 		return value
 	end
@@ -253,12 +252,12 @@ protected
 			open_key.close
 			return nil
 		rescue Rex::Post::Meterpreter::RequestError => e
-			return win_parse_error("ERROR:#{e}") # return an error_hash
+			print_error(e.to_s)
 		end
 	end
 	
-	### Shell Versions ###
-
+	#   '+._.+'-Shell Versions-'+._.+'   #
+	
 	##
 	# Generic registry manipulation methods based on reg.exe
 	##
@@ -274,7 +273,7 @@ protected
 			elsif results =~ /^Error:/
 				win_parse_error(results,cmd,__method__) # raises error
 			else
-				raise Msf::Post::Windows::CliParse::RequestError(__method__,"Unparsable error",nil,cmd)
+				raise Msf::Post::Windows::CliParse::RequestError.new(__method__,"Unparsable error",nil,cmd)
 			end
 		rescue Msf::Post::Windows::CliParse::RequestError => e
 			print_error(e.to_s)
@@ -292,7 +291,7 @@ protected
 			elsif results =~ /^Error:/
 				win_parse_error(results,cmd,__method__) # raises error
 			else
-				raise Msf::Post::Windows::CliParse::RequestError(__method__,"Unparsable error",nil,cmd)
+				raise Msf::Post::Windows::CliParse::RequestError.new(__method__,"Unparsable error",nil,cmd)
 			end
 		rescue Msf::Post::Windows::CliParse::RequestError => e
 			print_error(e.to_s)
@@ -310,7 +309,7 @@ protected
 			elsif results =~ /^Error:/
 				win_parse_error(results,cmd,__method__) # raises error
 			else
-				raise Msf::Post::Windows::CliParse::RequestError(__method__,"Unparsable error",nil,cmd)
+				raise Msf::Post::Windows::CliParse::RequestError.new(__method__,"Unparsable error",nil,cmd)
 			end
 		rescue Msf::Post::Windows::CliParse::RequestError => e
 			print_error(e.to_s)
@@ -342,7 +341,7 @@ protected
 				#	return win_parse_error("ERROR:Unrecognizable results from #{cmd}")
 				end 
 			else
-				raise Msf::Post::Windows::CliParse::RequestError(__method__,"Unparsable error",nil,cmd)
+				raise Msf::Post::Windows::CliParse::RequestError.new(__method__,"Unparsable error",nil,cmd)
 			end
 		rescue Msf::Post::Windows::CliParse::RequestError => e
 			print_error(e.to_s)
@@ -371,7 +370,7 @@ protected
 					t
 				end
 			else
-				raise Msf::Post::Windows::CliParse::RequestError(__method__,"Unparsable error",nil,cmd)
+				raise Msf::Post::Windows::CliParse::RequestError.new(__method__,"Unparsable error",nil,cmd)
 			end
 		rescue Msf::Post::Windows::CliParse::RequestError => e
 			print_error(e.to_s)
@@ -405,7 +404,7 @@ protected
 			elsif results =~ /^Error:/
 				win_parse_error(results,cmd,__method__) # raises error
 			else
-				raise Msf::Post::Windows::CliParse::RequestError(__method__,"Unparsable error",nil,cmd)
+				raise Msf::Post::Windows::CliParse::RequestError.new(__method__,"Unparsable error",nil,cmd)
 			end
 		rescue Msf::Post::Windows::CliParse::RequestError => e
 			print_error(e.to_s)
@@ -425,7 +424,7 @@ protected
 			elsif results =~ /^Error:/
 				win_parse_error(results,cmd,__method__) # raises error
 			else
-				raise Msf::Post::Windows::CliParse::RequestError(__method__,"Unparsable error",nil,cmd)
+				raise Msf::Post::Windows::CliParse::RequestError.new(__method__,"Unparsable error",nil,cmd)
 			end
 		rescue Msf::Post::Windows::CliParse::RequestError => e
 			print_error(e.to_s)

@@ -40,9 +40,10 @@ module CliParse
 	
 	#Msf::Post::Windows::CliParse::RequestError
 	class RequestError < ArgumentError
-        def initialize(method, einfo, ecode=nil, clicmd=nil)
+        def initialize(method, einfo='', ecode=nil, clicmd=nil)
                 @method = method
                 @info = einfo
+				# try to look up info if not given, but code is?
                 @code   = ecode 
                 @clicmd = clicmd || "Unknown shell command"
         end
@@ -140,11 +141,11 @@ module CliParse
 		if ma = /^error:.*/i.match(results) # if line starts with Error: just pass to regular parser
 			hashish.merge!(win_parse_results(ma[0].upcase)) #upcase required to satisfy regular parser
 			# merge results.  Results from win_parse_results will override any duplicates in hashish
-		elsif ma = /FAILED +[0-9]+/.match(str) # look for 'FAILED ' followed by some numbers
+		elsif ma = /FAILED +[0-9]+/.match(results) # look for 'FAILED ' followed by some numbers
 			sa = ma[0].split(' ')
 			hashish[:errval] = sa[1].chomp.to_i
 			# ^ intended to capture the numbers after the word 'FAILED' as [:errval]
-			ma = /^[^\[\n].+/.match(str)
+			ma = /^[^\[\n].+/.match(results)
 			hashish[:error] = ma[0].chomp.strip
 			# above intended to capture first non-empty line not starting with '[' or \n into [:error]
 		else
