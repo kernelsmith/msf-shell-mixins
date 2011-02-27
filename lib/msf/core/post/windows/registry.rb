@@ -102,6 +102,30 @@ module Registry
 			shell_registry_setvaldata(key, valname, data, type)
 		end
 	end
+	
+	#
+	# Checks to see if a given key value exists.  Returns Boolean
+	#
+	#
+	def registry_value_exist?(key,valname)
+		if session_has_registry_ext
+			meterpreter_registry_value_exist?(key,valname)
+		else
+			shell_registry_value_exist?(key,valname)
+		end
+	end
+	
+	#
+	# Checks to see if a given key exists.  Returns Boolean
+	#
+	#
+	def registry_key_exist?(key)
+		if session_has_registry_ext
+			meterpreter_registry_key_exist?(key)
+		else
+			shell_registry_key_exist?(key)
+		end
+	end
 
 	#
 	# Normalize the supplied full registry key string so the root key is sane.  For
@@ -145,124 +169,188 @@ protected
 	##
 	# Native Meterpreter-specific registry manipulation methods
 	##
+	############################################################
+	
+##
+#
+# Registry Permissions
+#
+##
+#KEY_QUERY_VALUE          = 0x00000001
+#KEY_SET_VALUE            = 0x00000002
+#KEY_CREATE_SUB_KEY       = 0x00000004
+#KEY_ENUMERATE_SUB_KEYS   = 0x00000008
+#KEY_NOTIFY               = 0x00000010
+#KEY_CREATE_LINK          = 0x00000020
+#KEY_READ                 = (STANDARD_RIGHTS_READ | KEY_QUERY_VALUE |KEY_ENUMERATE_SUB_KEYS | KEY_NOTIFY) & ~SYNCHRONIZE
+#KEY_WRITE                = (STANDARD_RIGHTS_WRITE | KEY_SET_VALUE |KEY_CREATE_SUB_KEY) & ~SYNCHRONIZE
+#KEY_EXECUTE              = KEY_READ
+#KEY_ALL_ACCESS           = (STANDARD_RIGHTS_ALL | KEY_QUERY_VALUE |......
 
-	def meterpreter_registry_createkey(key)
+	
+	def meterpreter_registry_value_exist?(key,valname) 
+		begin
+			a = self.meterpreter_registry_getvalinfo(key, valname)
+			return true if !!(a["Data"] or a["Type"])
+		rescue NoMethodError
+			return false
+		end 
+	end
+	
+	def meterpreter_registry_key_exist?(key)
+		begin
+			root_key, base_key = session.sys.registry.splitkey(key)
+			open_key = session.sys.registry.open_key(root_key, base_key, KEY_READ)
+			return true if open_key
+		rescue Exception  # seems like a more specific exception is warranted here...
+			return false
+		ensure open_key.close if open_key
+		end
+		return false
+	end
+
+	def meterpreter_registry_createkey(key)  #sets
 		begin
 			root_key, base_key = session.sys.registry.splitkey(key)
 			open_key = session.sys.registry.create_key(root_key, base_key)
-			open_key.close
+			open_key.close if open_key
 			return nil
 		rescue Rex::Post::Meterpreter::RequestError => e
-			print_error(e.to_s)
+			print_error("Error creating registry key #{e.to_s}")
 		end
 	end
 
-	def meterpreter_registry_deleteval(key, valname)
+	def meterpreter_registry_deleteval(key, valname)  #sets
 		begin
 			root_key, base_key = session.sys.registry.splitkey(key)
 			open_key = session.sys.registry.open_key(root_key, base_key, KEY_WRITE)
 			open_key.delete_value(valname)
-			open_key.close
+			open_key.close if open_key
 			return nil
 		rescue Rex::Post::Meterpreter::RequestError => e
-			print_error(e.to_s)
+			print_error("Error deleting registry value #{e.to_s}")
 		end
 	end
 
-	def meterpreter_registry_deletekey(key)
+	def meterpreter_registry_deletekey(key)  #sets
 		begin
 			root_key, base_key = session.sys.registry.splitkey(key)
 			deleted = session.sys.registry.delete_key(root_key, base_key)
 			return nil if deleted
 			raise Rex::Post::Meterpreter::RequestError.new(__method__,deleted,nil)
 		rescue Rex::Post::Meterpreter::RequestError => e
-			print_error(e.to_s)
+			print_error("Error deleting registry key #{e.to_s}")
 		end
 	end
 
-	def meterpreter_registry_enumkeys(key)
+	def meterpreter_registry_enumkeys(key)  #gets
 		subkeys = []
 		begin
 			root_key, base_key = session.sys.registry.splitkey(key)
 			open_key = session.sys.registry.open_key(root_key, base_key, KEY_READ)
+			return nil if !open_key
 			keys = open_key.enum_key
 			keys.each { |subkey|
 				subkeys << subkey
 			}
-			open_key.close
 		rescue Rex::Post::Meterpreter::RequestError => e
-			print_error(e.to_s)
+			return nil
+		ensure
+			open_key.close if open_key
 		end
 		return subkeys
 	end
 
-	def meterpreter_registry_enumvals(key)
+	def meterpreter_registry_enumvals(key)  #gets
 		values = []
 		begin
 			vals = {}
 			root_key, base_key = session.sys.registry.splitkey(key)
 			open_key = session.sys.registry.open_key(root_key, base_key, KEY_READ)
+			return nil if !open_key
 			vals = open_key.enum_value
 			vals.each { |val|
 				values <<  val.name
 			}
-			open_key.close
 		rescue Rex::Post::Meterpreter::RequestError => e
-			print_error(e.to_s)
+			return nil
+		ensure
+			open_key.close if open_key
 		end
 		return values
 	end
 
-	def meterpreter_registry_getvaldata(key, valname)
+	def meterpreter_registry_getvaldata(key, valname)  #gets
 		value = nil
 		begin
-			root_key, base_key = session.sys.registry.splitkey(key)
-			open_key = session.sys.registry.open_key(root_key, base_key, KEY_READ)
-			v = open_key.query_value(valname)
-			value = v.data
-			open_key.close
+			h = self.meterpreter_registry_getvalinfo(key,valname)
+			value = h["Data"] if h
 		rescue Rex::Post::Meterpreter::RequestError => e
-			print_error(e.to_s)
+			return nil
 		end
 		return value
 	end
 
-	def meterpreter_registry_getvalinfo(key, valname)
+	def meterpreter_registry_getvalinfo(key, valname)  #gets
 		value = {}
 		key = normalize_key(key)
 		begin
 			root_key, base_key = session.sys.registry.splitkey(key)
 			open_key = session.sys.registry.open_key(root_key, base_key, KEY_READ)
+			return nil if !open_key
 			v = open_key.query_value(valname)
 			value["Data"] = v.data
 			value["Type"] = v.type
-			open_key.close
 		rescue Rex::Post::Meterpreter::RequestError => e
-			print_error(e.to_s)
+			return nil
+		ensure
+			open_key.close if open_key
 		end
 		return value
 	end
 
-	def meterpreter_registry_setvaldata(key, valname, data, type)
+	def meterpreter_registry_setvaldata(key, valname, data, type)  #sets
 		key = normalize_key(key)
 		begin
 			root_key, base_key = session.sys.registry.splitkey(key)
 			open_key = session.sys.registry.open_key(root_key, base_key, KEY_WRITE)
 			open_key.set_value(valname, session.sys.registry.type2str(type), data)
-			open_key.close
 			return nil
 		rescue Rex::Post::Meterpreter::RequestError => e
-			print_error(e.to_s)
+			print_error("Error setting the registry value for #{key} #{valname}.  #{e.to_s}")
+		ensure
+			open_key.close if open_key
 		end
 	end
 	
-	#   '+._.+'-Shell Versions-'+._.+'   #
+	################   '+._.+'-Shell Versions-'+._.+'   #############
 	
 	##
 	# Generic registry manipulation methods based on reg.exe
 	##
+	
+	#REG_NONE                 = 0	#REG_DWORD_LITTLE_ENDIAN  = 4
+	#REG_SZ                   = 1	#REG_DWORD_BIG_ENDIAN     = 5
+	#REG_EXPAND_SZ            = 2	#REG_LINK                 = 6
+	#REG_BINARY               = 3	#REG_MULTI_SZ             = 7
+	#REG_DWORD                = 4
+	
+	#sets:  returns nil on success, exception on fail
+	#gets:  returns something on success, nil on fail & exception for unparsable results
 
-	def shell_registry_createkey(key)
+	def shell_registry_value_exist?(key,valname)
+		v = self.shell_registry_getvaldata(key,valname)
+		return true if (v and !v.empty?)
+		return false
+	end
+	
+	def shell_registry_key_exist?(key)
+		v = self.shell_registry_enumkeys(key)
+		return true if v
+		return false
+	end
+
+	def shell_registry_createkey(key)  #sets
 		key = normalize_key(key)
 		begin
 			# REG ADD KeyName [/v ValueName | /ve] [/t Type] [/s Separator] [/d Data] [/f]
@@ -271,16 +359,19 @@ protected
 			if results =~ /The operation completed successfully/
 				return nil
 			elsif results =~ /^Error:/
-				win_parse_error(results,cmd,__method__) # raises error
+				eh = win_parse_error(results)
+				raise Msf::Post::Windows::CliParse::ParseError.new(
+					__method__,"Error creating key #{key}:  #{eh[:error]}",eh[:errval],cmd)
 			else
-				raise Msf::Post::Windows::CliParse::RequestError.new(__method__,"Unparsable error",nil,cmd)
+				raise Msf::Post::Windows::CliParse::ParseError.new(
+					__method__,"Unparsable error:  #{results}",nil,cmd)
 			end
-		rescue Msf::Post::Windows::CliParse::RequestError => e
+		rescue Msf::Post::Windows::CliParse::ParseError => e
 			print_error(e.to_s)
 		end
 	end
 
-	def shell_registry_deleteval(key, valname)
+	def shell_registry_deleteval(key, valname)  #sets
 		key = normalize_key(key)
 		begin
 			# REG DELETE KeyName [/v ValueName | /ve | /va] [/f]
@@ -289,16 +380,19 @@ protected
 			if results =~ /The operation completed successfully/
 				return nil
 			elsif results =~ /^Error:/
-				win_parse_error(results,cmd,__method__) # raises error
+				eh = win_parse_error(results)
+				raise Msf::Post::Windows::CliParse::ParseError.new(
+					__method__,"Error deleting value #{key}:  #{eh[:error]}",eh[:errval],cmd)
 			else
-				raise Msf::Post::Windows::CliParse::RequestError.new(__method__,"Unparsable error",nil,cmd)
+				raise Msf::Post::Windows::CliParse::ParseError.new(
+					__method__,"Unparsable error:  #{results}",nil,cmd)
 			end
-		rescue Msf::Post::Windows::CliParse::RequestError => e
+		rescue Msf::Post::Windows::CliParse::ParseError => e
 			print_error(e.to_s)
 		end
 	end
 
-	def shell_registry_deletekey(key)
+	def shell_registry_deletekey(key)  #sets
 		key = normalize_key(key)
 		begin
 			# REG DELETE KeyName [/v ValueName | /ve | /va] [/f]
@@ -307,16 +401,19 @@ protected
 			if results =~ /The operation completed successfully/
 				return nil
 			elsif results =~ /^Error:/
-				win_parse_error(results,cmd,__method__) # raises error
+				eh = win_parse_error(results)
+				raise Msf::Post::Windows::CliParse::ParseError.new(
+					__method__,"Error deleting key #{key}:  #{eh[:error]}",eh[:errval],cmd)
 			else
-				raise Msf::Post::Windows::CliParse::RequestError.new(__method__,"Unparsable error",nil,cmd)
+				raise Msf::Post::Windows::CliParse::ParseError.new(
+					__method__,"Unparsable error:  #{results}",nil,cmd)
 			end
-		rescue Msf::Post::Windows::CliParse::RequestError => e
+		rescue Msf::Post::Windows::CliParse::ParseError => e
 			print_error(e.to_s)
 		end
 	end
 
-	def shell_registry_enumkeys(key)
+	def shell_registry_enumkeys(key)  #gets
 		key = normalize_key(key)
 		subkeys = []
 		reg_data_types = 'REG_SZ|REG_MULTI_SZ|REG_DWORD_BIG_ENDIAN|REG_DWORD|REG_BINARY|' 
@@ -325,31 +422,29 @@ protected
 			bslashes = key.count('\\')
 			cmd = "cmd.exe /c reg query \"#{key}\""
 			results = session.shell_command_token_win32(cmd)
-			if results
-				if results =~ /^Error:/
-					win_parse_error(results,cmd,__method__) # raises error
-				else # would like to use elsif results =~ /#{key}/  but can't figure it out
-					results.each_line do |line|
-						# now let's keep the ones that have a count = bslashes+1
-						# feels like there's a smarter way to do this but...
-						if (line.count('\\') == bslashes+1 && !line.ends_with?('\\'))
-							#then it's a first level subkey
-							subkeys << line.split('\\').last.chomp # take & chomp the last item only
-						end
+			if results =~ Regexp.new(Regexp.escape(key)) #if the supplied key is in the output
+				results.each_line do |line|
+					# now let's keep the ones that have a count = bslashes+1 cuz reg query is
+					# always recursive.  Feels like there's a smarter way to do this but...
+					if (line.count('\\') == bslashes+1 && !line.ends_with?('\\'))
+						#then it's a first level subkey
+						subkeys << line.split('\\').last.chomp # take & chomp the last item only
 					end
-				#else
-				#	return win_parse_error("ERROR:Unrecognizable results from #{cmd}")
-				end 
+				end
+				return subkeys
+			elsif results =~ /^Error:/
+				return nil
 			else
-				raise Msf::Post::Windows::CliParse::RequestError.new(__method__,"Unparsable error",nil,cmd)
+				raise Msf::Post::Windows::CliParse::ParseError.new(
+					__method__,"Unparsable error:  #{results}",nil,cmd)
 			end
-		rescue Msf::Post::Windows::CliParse::RequestError => e
+		rescue Msf::Post::Windows::CliParse::ParseError => e
 			print_error(e.to_s)
+			return nil
 		end
-		return subkeys
 	end
 
-	def shell_registry_enumvals(key)
+	def shell_registry_enumvals(key)  #gets
 		key = normalize_key(key)
 		values = []
 		reg_data_types = 'REG_SZ|REG_MULTI_SZ|REG_DWORD_BIG_ENDIAN|REG_DWORD|REG_BINARY|' 
@@ -358,9 +453,7 @@ protected
 			# REG QUERY KeyName [/v ValueName | /ve] [/s]
 			cmd = "cmd.exe /c reg query \"#{key}\""
 			results = session.shell_command_token_win32(cmd)
-			if results =~ /^Error:/
-				win_parse_error(results,cmd,__method__) # raises error
-			elsif values = results.scan(/^ +.*[#{reg_data_types}].*/)
+			if values = results.scan(/^ +.*[#{reg_data_types}].*/)
 				# yanked the lines with legit REG value types like REG_SZ
 				# now let's parse out the names (first field basically)
 				values.collect! do |line|
@@ -369,27 +462,30 @@ protected
 					t = nil if t == "<NO"
 					t
 				end
+				return values
+			elsif results =~ /^Error:/
+				return nil
 			else
-				raise Msf::Post::Windows::CliParse::RequestError.new(__method__,"Unparsable error",nil,cmd)
+				raise Msf::Post::Windows::CliParse::ParseError.new(
+					__method__,"Unparsable error:  #{results}",nil,cmd)
 			end
-		rescue Msf::Post::Windows::CliParse::RequestError => e
+		rescue Msf::Post::Windows::CliParse::ParseError => e
 			print_error(e.to_s)
+			return nil
 		end
-		return values
 	end
 
-	def shell_registry_getvaldata(key, valname)
-		value = nil
+	def shell_registry_getvaldata(key,valname)  #gets
 		begin
-			a = shell_registry_getvalinfo(key, valname)
-			value = a["Data"] || nil
+			a = shell_registry_getvalinfo(key,valname)
+			return a["Data"] if a
+			return nil
 		end
-		return value
 	end
 
-	def shell_registry_getvalinfo(key, valname)
+	def shell_registry_getvalinfo(key, valname)  #gets
 		key = normalize_key(key)
-		value = {}
+		info = {}
 		begin
 			# REG QUERY KeyName [/v ValueName | /ve] [/s]
 			cmd = "cmd.exe /c reg query \"#{key}\" /v \"#{valname}\""
@@ -398,21 +494,23 @@ protected
 				# pull out the interesting line (the one with the value name in it)
 				# and split it with ' ' yielding [valname,REGvaltype,REGdata]
 				split_arr = match_arr[0].split(' ')
-				value["Type"] = split_arr[1]
-				value["Data"] = split_arr[2]
-				# need to test to ensure all results can be parsed this way
+				info["Type"] = split_arr[1]
+				info["Data"] = split_arr[2]
+				return info
 			elsif results =~ /^Error:/
-				win_parse_error(results,cmd,__method__) # raises error
+				return nil
 			else
-				raise Msf::Post::Windows::CliParse::RequestError.new(__method__,"Unparsable error",nil,cmd)
+				raise Msf::Post::Windows::CliParse::ParseError.new(
+					__method__,"Unparsable error:  #{results}",nil,cmd)
 			end
-		rescue Msf::Post::Windows::CliParse::RequestError => e
+		rescue Msf::Post::Windows::CliParse::ParseError => e
 			print_error(e.to_s)
+			return nil
 		end
 		return value
 	end
 
-	def shell_registry_setvaldata(key, valname, data, type)
+	def shell_registry_setvaldata(key, valname, data, type)  #sets
 		key = normalize_key(key)
 		begin
 			# REG ADD KeyName [/v ValueName | /ve] [/t Type] [/s Separator] [/d Data] [/f]
@@ -422,12 +520,16 @@ protected
 			if results =~ /The operation completed successfully/
 				return nil
 			elsif results =~ /^Error:/
-				win_parse_error(results,cmd,__method__) # raises error
+				eh = win_parse_error(results)
+				raise Msf::Post::Windows::CliParse::ParseError.new(
+					__method__,"Error setting val data #{key}:  #{eh[:error]}",eh[:errval],cmd)
 			else
-				raise Msf::Post::Windows::CliParse::RequestError.new(__method__,"Unparsable error",nil,cmd)
+				raise Msf::Post::Windows::CliParse::ParseError.new(
+					__method__,"Unparsable error:  #{results}",nil,cmd)
 			end
-		rescue Msf::Post::Windows::CliParse::RequestError => e
+		rescue Msf::Post::Windows::CliParse::ParseError => e
 			print_error(e.to_s)
+			return nil
 		end
 	end
 

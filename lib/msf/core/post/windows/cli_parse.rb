@@ -38,8 +38,8 @@ module CliParse
 	require 'rex/logging'
 	require 'rex/exceptions'
 	
-	#Msf::Post::Windows::CliParse::RequestError
-	class RequestError < ArgumentError
+	#Msf::Post::Windows::CliParse::ParseError
+	class ParseError < ArgumentError
         def initialize(method, einfo='', ecode=nil, clicmd=nil)
                 @method = method
                 @info = einfo
@@ -132,7 +132,7 @@ module CliParse
 	#   :errval => nil
 	# }
 	#
-	def win_parse_error(results,cmd,method)
+	def win_parse_error(results)
 		hashish = {
 				:error => "Unknown Error",
 				:errval => nil
@@ -151,8 +151,7 @@ module CliParse
 		else
 			# do nothing, defaults are good
 		end
-		#raise Msf::Post::Windows::CliParse::RequestError.new(method,info,code,cmd)
-		raise Msf::Post::Windows::CliParse::RequestError.new(method,hashish[:error],hashish[:errval],cmd)
+		return hashish
 	end
 
 end

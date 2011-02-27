@@ -91,6 +91,8 @@ class Metasploit3 < Msf::Post
 		print_status("RESULTS: #{results.class} #{results.pretty_inspect}")
 		print_status("Current status of this service " + 
 					"#{service_query_ex(datastore['SSERVICE']).pretty_inspect}") if blab
+		print_status("Sleeping to give the service a chance to start")
+		sleep 2 # give the service time to start, reduces false negatives
 
 		print_status()
 		print_status("TESTING service_stop on servicename: #{datastore['SSERVICE']}")

@@ -40,6 +40,31 @@ class Metasploit3 < Msf::Post
 		print_status("Session type is #{session.type}")
 
 		print_status()
+		print_status("TESTING:  registry_value_exist? for key:#{datastore['KEY']}, val:#{datastore['VALUE']}")
+		results = registry_value_exist?(datastore['KEY'],datastore['VALUE'])
+		print_status("RESULTS:  #{results.class} #{results.inspect}")
+		
+		print_status()
+		print_status("TESTING:  registry_value_exist? for key:#{'HKLM\\Non\Existent\key'}, val:#{datastore['VALUE']}")
+		results = registry_value_exist?('HKLM\\Non\Existent\key',datastore['VALUE'])
+		print_status("RESULTS (Expecting false):  #{results.class} #{results.inspect}")
+		
+		print_status()
+		print_status("TESTING:  registry_value_exist? for key:#{datastore['KEY']}, val:'NonExistentValue'")
+		results = registry_value_exist?(datastore['KEY'],'NonExistentValue')
+		print_status("RESULTS (Expecting false):  #{results.class} #{results.inspect}")
+		
+		print_status()
+#		print_status("TESTING:  registry_key_exist? for key: 'HKLM\\Non\Existent\key'")
+#		results = registry_key_exist?('HKLM\\Non\Existent\key')  # need to error handle this properly in meterp ver
+#		print_status("RESULTS (Expecting false):  #{results.class} #{results.inspect}")
+		
+		print_status()
+		print_status("TESTING:  registry_key_exist? for key:#{datastore['KEY']}")
+		results = registry_key_exist?(datastore['KEY'])
+		print_status("RESULTS:  #{results.class} #{results.inspect}")
+		
+		print_status()
 		print_status("TESTING:  registry_getvalinfo for key:#{datastore['KEY']}, val:#{datastore['VALUE']}")
 		results = registry_getvalinfo(datastore['KEY'], datastore['VALUE'])
 		print_error("reported failure") unless results
@@ -83,10 +108,12 @@ class Metasploit3 < Msf::Post
 
 		print_status()
 		print_status("Running registry_getvalinfo for deleted key:#{datastore['KEY']}\\test, val:test")
-		print_status("NOTE: this OUGHT to return an error ~ cannot find key or value...")
+		print_status("NOTE: this OUGHT to return nil")
 		results = registry_getvalinfo("#{datastore['KEY']}\\test", "test")
-		print_status("RESULTS:  #{results.class} #{results.inspect}")
-
+		print_status("RESULTS (Expecting nil):  #{results.class} #{results.inspect}")
+		print_error("reported failure") if results
+		print_status("nil is correct.  sweet.")  if !results
+		
 		print_status()
 		print_status("TESTING:  registry_enumkeys")
 		results = registry_enumkeys(datastore['KEY'])
