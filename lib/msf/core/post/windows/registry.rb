@@ -202,7 +202,7 @@ protected
 			root_key, base_key = session.sys.registry.splitkey(key)
 			open_key = session.sys.registry.open_key(root_key, base_key, KEY_READ)
 			return true if open_key
-		rescue Exception  # seems like a more specific exception is warranted here...
+		rescue Rex::Post::Meterpreter::RequestError  # other errors?
 			return false
 		ensure open_key.close if open_key
 		end

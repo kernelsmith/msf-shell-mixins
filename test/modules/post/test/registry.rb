@@ -55,9 +55,9 @@ class Metasploit3 < Msf::Post
 		print_status("RESULTS (Expecting false):  #{results.class} #{results.inspect}")
 		
 		print_status()
-#		print_status("TESTING:  registry_key_exist? for key: 'HKLM\\Non\Existent\key'")
-#		results = registry_key_exist?('HKLM\\Non\Existent\key')  # need to error handle this properly in meterp ver
-#		print_status("RESULTS (Expecting false):  #{results.class} #{results.inspect}")
+		print_status("TESTING:  registry_key_exist? for key: 'HKLM\\Non\Existent\key'")
+		results = registry_key_exist?('HKLM\\Non\Existent\key')  # need to error handle this properly in meterp ver
+		print_status("RESULTS (Expecting false):  #{results.class} #{results.inspect}")
 		
 		print_status()
 		print_status("TESTING:  registry_key_exist? for key:#{datastore['KEY']}")

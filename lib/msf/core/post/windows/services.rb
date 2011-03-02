@@ -245,17 +245,19 @@ module WindowsServices
 		services = []
 		begin
 			meterpreter_registry_enumkeys(serviceskey).each do |s|
-				sleep(0.05) and a.delete_if {|x| not x.alive?} while a.length >= 10
-
-				a.push(::Thread.new(s) { |sk|
-					begin
-						srvtype = registry_getvaldata("#{serviceskey}\\#{sk}","Type").to_s
-						if srvtype =~ /32|16/
-							services << sk
+ 				if threadnum < 10
+					a.push(::Thread.new(s) { |sk|
+						begin
+							srvtype = registry_getvaldata("#{serviceskey}\\#{sk}","Type").to_s
+							services << sk if srvtype =~ /32|16/
+						rescue
 						end
-					rescue
-					end
-				})
+					})
+					threadnum += 1
+				else
+					sleep(0.05) and a.delete_if {|x| not x.alive?} while not a.empty?
+					threadnum = 0
+				end
 			end
 		rescue Exception => e
 			print_error("Error enumerating services.  #{e.to_s}")
