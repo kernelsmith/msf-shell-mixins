@@ -1,0 +1,4 @@
+This is where and post modules that require changes to work with the 'return nil on success' scheme will reside.
+However all testable post modules seem to work fine as is (not too many actually use services.rb or registry.rb).
+But, the ones that do use them, seem to be fine.  Didn't do extensive failure condition testing on them however.
+The test modules in test/post/test exercise a lot of the failure modes however
