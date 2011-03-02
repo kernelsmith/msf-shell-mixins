@@ -1,0 +1,594 @@
+84d83
+< 	#
+105,154d103
+< 	
+< 	#
+< 	# Checks to see if a given key value exists.  Returns Boolean
+< 	#
+< 	#
+< 	def registry_value_exist?(key,valname)
+< 		if session_has_registry_ext
+< 			meterpreter_registry_value_exist?(key,valname)
+< 		else
+< 			shell_registry_value_exist?(key,valname)
+< 		end
+< 	end
+< 	
+< 	#
+< 	# Checks to see if a given key exists.  Returns Boolean
+< 	#
+< 	#
+< 	def registry_key_exist?(key)
+< 		if session_has_registry_ext
+< 			meterpreter_registry_key_exist?(key)
+< 		else
+< 			shell_registry_key_exist?(key)
+< 		end
+< 	end
+< 
+< 	#
+< 	# Normalize the supplied full registry key string so the root key is sane.  For
+< 	# instance, passing "HKLM\Software\Dog" will return 'HKEY_LOCAL_MACHINE\Software\Dog'
+< 	#
+< 	def normalize_key(key)
+< 		keys = split_key(key)
+< 		if (keys[0] =~ /HKLM|HKEY_LOCAL_MACHINE/)
+< 			keys[0] = 'HKEY_LOCAL_MACHINE'
+< 		elsif (keys[0] =~ /HKCU|HKEY_CURRENT_USER/)
+< 			keys[0] = 'HKEY_CURRENT_USER'
+< 		elsif (keys[0] =~ /HKU|HKEY_USERS/)
+< 			keys[0] = 'HKEY_USERS'
+< 		elsif (keys[0] =~ /HKCR|HKEY_CLASSES_ROOT/)
+< 			keys[0] = 'HKEY_CLASSES_ROOT'
+< 		elsif (keys[0] =~ /HKCC|HKEY_CURRENT_CONFIG/)
+< 			keys[0] = 'HKEY_CURRENT_CONFIG'
+< 		elsif (keys[0] =~ /HKPD|HKEY_PERFORMANCE_DATA/)
+< 			keys[0] = 'HKEY_PERFORMANCE_DATA'
+< 		elsif (keys[0] =~ /HKDD|HKEY_DYN_DATA/)
+< 			keys[0] = 'HKEY_DYN_DATA'
+< 		else
+< 			raise ArgumentError, "Cannot normalize unknown key: #{key}"
+< 		end
+< 		return keys.join("\\")
+< 	end
+169,221d117
+< 	##
+< 	# Native Meterpreter-specific registry manipulation methods
+< 	##
+< 	############################################################
+< 	
+< ##
+< #
+< # Registry Permissions
+< #
+< ##
+< #KEY_QUERY_VALUE          = 0x00000001
+< #KEY_SET_VALUE            = 0x00000002
+< #KEY_CREATE_SUB_KEY       = 0x00000004
+< #KEY_ENUMERATE_SUB_KEYS   = 0x00000008
+< #KEY_NOTIFY               = 0x00000010
+< #KEY_CREATE_LINK          = 0x00000020
+< #KEY_READ                 = (STANDARD_RIGHTS_READ | KEY_QUERY_VALUE |KEY_ENUMERATE_SUB_KEYS | KEY_NOTIFY) & ~SYNCHRONIZE
+< #KEY_WRITE                = (STANDARD_RIGHTS_WRITE | KEY_SET_VALUE |KEY_CREATE_SUB_KEY) & ~SYNCHRONIZE
+< #KEY_EXECUTE              = KEY_READ
+< #KEY_ALL_ACCESS           = (STANDARD_RIGHTS_ALL | KEY_QUERY_VALUE |......
+< 
+< 	
+< 	def meterpreter_registry_value_exist?(key,valname) 
+< 		begin
+< 			a = self.meterpreter_registry_getvalinfo(key, valname)
+< 			return true if !!(a["Data"] or a["Type"])
+< 		rescue NoMethodError
+< 			return false
+< 		end 
+< 	end
+< 	
+< 	def meterpreter_registry_key_exist?(key)
+< 		begin
+< 			root_key, base_key = session.sys.registry.splitkey(key)
+< 			open_key = session.sys.registry.open_key(root_key, base_key, KEY_READ)
+< 			return true if open_key
+< 		rescue Rex::Post::Meterpreter::RequestError  # other errors?
+< 			return false
+< 		ensure open_key.close if open_key
+< 		end
+< 		return false
+< 	end
+< 
+< 	def meterpreter_registry_createkey(key)  #sets
+< 		begin
+< 			root_key, base_key = session.sys.registry.splitkey(key)
+< 			open_key = session.sys.registry.create_key(root_key, base_key)
+< 			open_key.close if open_key
+< 			return nil
+< 		rescue Rex::Post::Meterpreter::RequestError => e
+< 			print_error("Error creating registry key #{e.to_s}")
+< 		end
+< 	end
+223,327d118
+< 	def meterpreter_registry_deleteval(key, valname)  #sets
+< 		begin
+< 			root_key, base_key = session.sys.registry.splitkey(key)
+< 			open_key = session.sys.registry.open_key(root_key, base_key, KEY_WRITE)
+< 			open_key.delete_value(valname)
+< 			open_key.close if open_key
+< 			return nil
+< 		rescue Rex::Post::Meterpreter::RequestError => e
+< 			print_error("Error deleting registry value #{e.to_s}")
+< 		end
+< 	end
+< 
+< 	def meterpreter_registry_deletekey(key)  #sets
+< 		begin
+< 			root_key, base_key = session.sys.registry.splitkey(key)
+< 			deleted = session.sys.registry.delete_key(root_key, base_key)
+< 			return nil if deleted
+< 			raise Rex::Post::Meterpreter::RequestError.new(__method__,deleted,nil)
+< 		rescue Rex::Post::Meterpreter::RequestError => e
+< 			print_error("Error deleting registry key #{e.to_s}")
+< 		end
+< 	end
+< 
+< 	def meterpreter_registry_enumkeys(key)  #gets
+< 		subkeys = []
+< 		begin
+< 			root_key, base_key = session.sys.registry.splitkey(key)
+< 			open_key = session.sys.registry.open_key(root_key, base_key, KEY_READ)
+< 			return nil if !open_key
+< 			keys = open_key.enum_key
+< 			keys.each { |subkey|
+< 				subkeys << subkey
+< 			}
+< 		rescue Rex::Post::Meterpreter::RequestError => e
+< 			return nil
+< 		ensure
+< 			open_key.close if open_key
+< 		end
+< 		return subkeys
+< 	end
+< 
+< 	def meterpreter_registry_enumvals(key)  #gets
+< 		values = []
+< 		begin
+< 			vals = {}
+< 			root_key, base_key = session.sys.registry.splitkey(key)
+< 			open_key = session.sys.registry.open_key(root_key, base_key, KEY_READ)
+< 			return nil if !open_key
+< 			vals = open_key.enum_value
+< 			vals.each { |val|
+< 				values <<  val.name
+< 			}
+< 		rescue Rex::Post::Meterpreter::RequestError => e
+< 			return nil
+< 		ensure
+< 			open_key.close if open_key
+< 		end
+< 		return values
+< 	end
+< 
+< 	def meterpreter_registry_getvaldata(key, valname)  #gets
+< 		value = nil
+< 		begin
+< 			h = self.meterpreter_registry_getvalinfo(key,valname)
+< 			value = h["Data"] if h
+< 		rescue Rex::Post::Meterpreter::RequestError => e
+< 			return nil
+< 		end
+< 		return value
+< 	end
+< 
+< 	def meterpreter_registry_getvalinfo(key, valname)  #gets
+< 		value = {}
+< 		key = normalize_key(key)
+< 		begin
+< 			root_key, base_key = session.sys.registry.splitkey(key)
+< 			open_key = session.sys.registry.open_key(root_key, base_key, KEY_READ)
+< 			return nil if !open_key
+< 			v = open_key.query_value(valname)
+< 			value["Data"] = v.data
+< 			value["Type"] = v.type
+< 		rescue Rex::Post::Meterpreter::RequestError => e
+< 			return nil
+< 		ensure
+< 			open_key.close if open_key
+< 		end
+< 		return value
+< 	end
+< 
+< 	def meterpreter_registry_setvaldata(key, valname, data, type)  #sets
+< 		key = normalize_key(key)
+< 		begin
+< 			root_key, base_key = session.sys.registry.splitkey(key)
+< 			open_key = session.sys.registry.open_key(root_key, base_key, KEY_WRITE)
+< 			open_key.set_value(valname, session.sys.registry.type2str(type), data)
+< 			return nil
+< 		rescue Rex::Post::Meterpreter::RequestError => e
+< 			print_error("Error setting the registry value for #{key} #{valname}.  #{e.to_s}")
+< 		ensure
+< 			open_key.close if open_key
+< 		end
+< 	end
+< 	
+< 	################   '+._.+'-Shell Versions-'+._.+'   #############
+< 	
+331,351d121
+< 	
+< 	#REG_NONE                 = 0	#REG_DWORD_LITTLE_ENDIAN  = 4
+< 	#REG_SZ                   = 1	#REG_DWORD_BIG_ENDIAN     = 5
+< 	#REG_EXPAND_SZ            = 2	#REG_LINK                 = 6
+< 	#REG_BINARY               = 3	#REG_MULTI_SZ             = 7
+< 	#REG_DWORD                = 4
+< 	
+< 	#sets:  returns nil on success, exception on fail
+< 	#gets:  returns something on success, nil on fail & exception for unparsable results
+< 
+< 	def shell_registry_value_exist?(key,valname)
+< 		v = self.shell_registry_getvaldata(key,valname)
+< 		return true if (v and !v.empty?)
+< 		return false
+< 	end
+< 	
+< 	def shell_registry_key_exist?(key)
+< 		v = self.shell_registry_enumkeys(key)
+< 		return true if v
+< 		return false
+< 	end
+353c123
+< 	def shell_registry_createkey(key)  #sets
+---
+> 	def shell_registry_createkey(key)
+354a125
+> 		boo = false
+360c131
+< 				return nil
+---
+> 				boo = true
+362,364c133
+< 				eh = win_parse_error(results)
+< 				raise Msf::Post::Windows::CliParse::ParseError.new(
+< 					__method__,"Error creating key #{key}:  #{eh[:error]}",eh[:errval],cmd)
+---
+> 				error_hash = win_parse_error(results)
+366,367c135
+< 				raise Msf::Post::Windows::CliParse::ParseError.new(
+< 					__method__,"Unparsable error:  #{results}",nil,cmd)
+---
+> 				error_hash = win_parse_error("ERROR:Unknown error running #{cmd}") 
+369,370d136
+< 		rescue Msf::Post::Windows::CliParse::ParseError => e
+< 			print_error(e.to_s)
+374c140
+< 	def shell_registry_deleteval(key, valname)  #sets
+---
+> 	def shell_registry_deleteval(key, valname)
+375a142
+> 		boo = false
+381c148
+< 				return nil
+---
+> 				boo = true
+383,385c150
+< 				eh = win_parse_error(results)
+< 				raise Msf::Post::Windows::CliParse::ParseError.new(
+< 					__method__,"Error deleting value #{key}:  #{eh[:error]}",eh[:errval],cmd)
+---
+> 				error_hash = win_parse_error(results)
+387,388c152
+< 				raise Msf::Post::Windows::CliParse::ParseError.new(
+< 					__method__,"Unparsable error:  #{results}",nil,cmd)
+---
+> 				error_hash = win_parse_error("ERROR:Unknown error running #{cmd}")
+390,391d153
+< 		rescue Msf::Post::Windows::CliParse::ParseError => e
+< 			print_error(e.to_s)
+392a155
+> 		return boo
+395c158
+< 	def shell_registry_deletekey(key)  #sets
+---
+> 	def shell_registry_deletekey(key)
+396a160
+> 		boo = false
+402c166
+< 				return nil
+---
+> 				boo = true
+404,406c168
+< 				eh = win_parse_error(results)
+< 				raise Msf::Post::Windows::CliParse::ParseError.new(
+< 					__method__,"Error deleting key #{key}:  #{eh[:error]}",eh[:errval],cmd)
+---
+> 				error_hash = win_parse_error(results)
+408,409c170
+< 				raise Msf::Post::Windows::CliParse::ParseError.new(
+< 					__method__,"Unparsable error:  #{results}",nil,cmd)
+---
+> 				error_hash = win_parse_error("ERROR:Unknown error running #{cmd}") 
+411,412d171
+< 		rescue Msf::Post::Windows::CliParse::ParseError => e
+< 			print_error(e.to_s)
+413a173
+> 		return boo
+416c176
+< 	def shell_registry_enumkeys(key)  #gets
+---
+> 	def shell_registry_enumkeys(key)
+425,431c185,195
+< 			if results =~ Regexp.new(Regexp.escape(key)) #if the supplied key is in the output
+< 				results.each_line do |line|
+< 					# now let's keep the ones that have a count = bslashes+1 cuz reg query is
+< 					# always recursive.  Feels like there's a smarter way to do this but...
+< 					if (line.count('\\') == bslashes+1 && !line.ends_with?('\\'))
+< 						#then it's a first level subkey
+< 						subkeys << line.split('\\').last.chomp # take & chomp the last item only
+---
+> 			if results
+> 				if results =~ /^Error:/
+> 					error_hash = win_parse_error(results)
+> 				else # would like to use elsif results =~ /#{key}/  but can't figure it out
+> 					results.each_line do |line|
+> 						# now let's keep the ones that have a count = bslashes+1
+> 						# feels like there's a smarter way to do this but...
+> 						if (line.count('\\') == bslashes+1 && !line.ends_with?('\\'))
+> 							#then it's a first level subkey
+> 							subkeys << line.split('\\').last.chomp # take & chomp the last item only
+> 						end
+433,436c197,199
+< 				end
+< 				return subkeys
+< 			elsif results =~ /^Error:/
+< 				return nil
+---
+> 				#else
+> 				#	error_hash = win_parse_error("ERROR:Unrecognizable results from #{cmd}")
+> 				end 
+438,439c201
+< 				raise Msf::Post::Windows::CliParse::ParseError.new(
+< 					__method__,"Unparsable error:  #{results}",nil,cmd)
+---
+> 				error_hash = win_parse_error("ERROR:Unknown error running #{cmd}")
+441,443d202
+< 		rescue Msf::Post::Windows::CliParse::ParseError => e
+< 			print_error(e.to_s)
+< 			return nil
+444a204
+> 		return subkeys
+447c207
+< 	def shell_registry_enumvals(key)  #gets
+---
+> 	def shell_registry_enumvals(key)
+456c216,218
+< 			if values = results.scan(/^ +.*[#{reg_data_types}].*/)
+---
+> 			if results =~ /^Error:/
+> 				error_hash = win_parse_error(results)
+> 			elsif values = results.scan(/^ +.*[#{reg_data_types}].*/)
+465,467d226
+< 				return values
+< 			elsif results =~ /^Error:/
+< 				return nil
+469,470c228
+< 				raise Msf::Post::Windows::CliParse::ParseError.new(
+< 					__method__,"Unparsable error:  #{results}",nil,cmd)
+---
+> 				error_hash = win_parse_error("ERROR:Unknown error running #{cmd}")
+472,474d229
+< 		rescue Msf::Post::Windows::CliParse::ParseError => e
+< 			print_error(e.to_s)
+< 			return nil
+475a231
+> 		return values
+478c234,235
+< 	def shell_registry_getvaldata(key,valname)  #gets
+---
+> 	def shell_registry_getvaldata(key, valname)
+> 		value = nil
+480,482c237,238
+< 			a = shell_registry_getvalinfo(key,valname)
+< 			return a["Data"] if a
+< 			return nil
+---
+> 			a = shell_registry_getvalinfo(key, valname)
+> 			value = a["Data"] || nil
+483a240
+> 		return value
+486c243
+< 	def shell_registry_getvalinfo(key, valname)  #gets
+---
+> 	def shell_registry_getvalinfo(key, valname)
+488c245,247
+< 		info = {}
+---
+> 		value = {}
+> 		value["Data"] = nil # defaults
+> 		value["Type"] = nil
+497,499c256,258
+< 				info["Type"] = split_arr[1]
+< 				info["Data"] = split_arr[2]
+< 				return info
+---
+> 				value["Type"] = split_arr[1]
+> 				value["Data"] = split_arr[2]
+> 				# need to test to ensure all results can be parsed this way
+501c260
+< 				return nil
+---
+> 				error_hash = win_parse_error(results)
+503,504c262
+< 				raise Msf::Post::Windows::CliParse::ParseError.new(
+< 					__method__,"Unparsable error:  #{results}",nil,cmd)
+---
+> 				error_hash = win_parse_error("ERROR:Unknown error running #{cmd}")
+506,508d263
+< 		rescue Msf::Post::Windows::CliParse::ParseError => e
+< 			print_error(e.to_s)
+< 			return nil
+513c268
+< 	def shell_registry_setvaldata(key, valname, data, type)  #sets
+---
+> 	def shell_registry_setvaldata(key, valname, data, type)
+514a270
+> 		boo = false
+521c277
+< 				return nil
+---
+> 				boo = true
+523,525c279
+< 				eh = win_parse_error(results)
+< 				raise Msf::Post::Windows::CliParse::ParseError.new(
+< 					__method__,"Error setting val data #{key}:  #{eh[:error]}",eh[:errval],cmd)
+---
+> 				error_hash = win_parse_error(results)
+527,528c281
+< 				raise Msf::Post::Windows::CliParse::ParseError.new(
+< 					__method__,"Unparsable error:  #{results}",nil,cmd)
+---
+> 				error_hash = win_parse_error("ERROR:Unknown error running #{cmd}")
+530,531c283,368
+< 		rescue Msf::Post::Windows::CliParse::ParseError => e
+< 			print_error(e.to_s)
+---
+> 		end
+> 		return boo
+> 	end
+> 
+> 
+> 	##
+> 	# Meterpreter-specific registry manipulation methods
+> 	##
+> 
+> 
+> 	def meterpreter_registry_createkey(key)
+> 		begin
+> 			root_key, base_key = session.sys.registry.splitkey(key)
+> 
+> 			open_key = session.sys.registry.create_key(root_key, base_key)
+> 			open_key.close
+> 			return true
+> 		rescue Rex::Post::Meterpreter::RequestError => e
+> 			return nil
+> 		end
+> 	end
+> 
+> 	def meterpreter_registry_deleteval(key, valname)
+> 		begin
+> 			root_key, base_key = session.sys.registry.splitkey(key)
+> 			open_key = session.sys.registry.open_key(root_key, base_key, KEY_WRITE)
+> 			open_key.delete_value(valname)
+> 			open_key.close
+> 			return true
+> 		rescue Rex::Post::Meterpreter::RequestError => e
+> 			return nil
+> 		end
+> 	end
+> 
+> 	def meterpreter_registry_deletekey(key)
+> 		begin
+> 			root_key, base_key = session.sys.registry.splitkey(key)
+> 			deleted = session.sys.registry.delete_key(root_key, base_key)
+> 			return deleted
+> 		rescue Rex::Post::Meterpreter::RequestError => e
+> 			print_status "curses, foiled again"
+> 		end
+> 	end
+> 
+> 	def meterpreter_registry_enumkeys(key)
+> 		subkeys = []
+> 		begin
+> 			root_key, base_key = session.sys.registry.splitkey(key)
+> 			open_key = session.sys.registry.open_key(root_key, base_key, KEY_READ)
+> 			keys = open_key.enum_key
+> 			keys.each { |subkey|
+> 				subkeys << subkey
+> 			}
+> 			open_key.close
+> 		rescue Rex::Post::Meterpreter::RequestError => e
+> 			return nil
+> 		end
+> 		return subkeys
+> 	end
+> 
+> 	def meterpreter_registry_enumvals(key)
+> 		values = []
+> 		begin
+> 			vals = {}
+> 			root_key, base_key = session.sys.registry.splitkey(key)
+> 			open_key = session.sys.registry.open_key(root_key, base_key, KEY_READ)
+> 			vals = open_key.enum_value
+> 			vals.each { |val|
+> 				values <<  val.name
+> 			}
+> 			open_key.close
+> 		rescue Rex::Post::Meterpreter::RequestError => e
+> 			return nil
+> 		end
+> 		return values
+> 	end
+> 
+> 	def meterpreter_registry_getvaldata(key, valname)
+> 		value = nil
+> 		begin
+> 			root_key, base_key = session.sys.registry.splitkey(key)
+> 			open_key = session.sys.registry.open_key(root_key, base_key, KEY_READ)
+> 			v = open_key.query_value(valname)
+> 			value = v.data
+> 			open_key.close
+> 		rescue Rex::Post::Meterpreter::RequestError => e
+533a371,425
+> 		return value
+> 	end
+> 
+> 	def meterpreter_registry_getvalinfo(key, valname)
+> 		value = {}
+> 		begin
+> 			root_key, base_key = session.sys.registry.splitkey(key)
+> 			open_key = session.sys.registry.open_key(root_key, base_key, KEY_READ)
+> 			v = open_key.query_value(valname)
+> 			value["Data"] = v.data
+> 			value["Type"] = v.type
+> 			open_key.close
+> 		rescue Rex::Post::Meterpreter::RequestError => e
+> 			return nil
+> 		end
+> 		return value
+> 	end
+> 
+> 	def meterpreter_registry_setvaldata(key, valname, data, type)
+> 		begin
+> 			root_key, base_key = session.sys.registry.splitkey(key)
+> 			open_key = session.sys.registry.open_key(root_key, base_key, KEY_WRITE)
+> 			open_key.set_value(valname, session.sys.registry.type2str(type), data)
+> 			open_key.close
+> 			return true
+> 		rescue Rex::Post::Meterpreter::RequestError => e
+> 			return nil
+> 		end
+> 	end
+> 
+> 	#
+> 	# Normalize the supplied full registry key string so the root key is sane.  For
+> 	# instance, passing "HKLM\Software\Dog" will return 'HKEY_LOCAL_MACHINE\Software\Dog'
+> 	#
+> 	def normalize_key(key)
+> 		keys = split_key(key)
+> 		if (keys[0] =~ /HKLM|HKEY_LOCAL_MACHINE/)
+> 			keys[0] = 'HKEY_LOCAL_MACHINE'
+> 		elsif (keys[0] =~ /HKCU|HKEY_CURRENT_USER/)
+> 			keys[0] = 'HKEY_CURRENT_USER'
+> 		elsif (keys[0] =~ /HKU|HKEY_USERS/)
+> 			keys[0] = 'HKEY_USERS'
+> 		elsif (keys[0] =~ /HKCR|HKEY_CLASSES_ROOT/)
+> 			keys[0] = 'HKEY_CLASSES_ROOT'
+> 		elsif (keys[0] =~ /HKCC|HKEY_CURRENT_CONFIG/)
+> 			keys[0] = 'HKEY_CURRENT_CONFIG'
+> 		elsif (keys[0] =~ /HKPD|HKEY_PERFORMANCE_DATA/)
+> 			keys[0] = 'HKEY_PERFORMANCE_DATA'
+> 		elsif (keys[0] =~ /HKDD|HKEY_DYN_DATA/)
+> 			keys[0] = 'HKEY_DYN_DATA'
+> 		else
+> 			raise ArgumentError, "Cannot normalize unknown key: #{key}"
+> 		end
+> 		print_status("Normalized #{key} to #{keys.join("\\")}") if $blab
+> 		return keys.join("\\")
+551a444
+> 
