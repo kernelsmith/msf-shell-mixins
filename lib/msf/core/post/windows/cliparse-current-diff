@@ -1,0 +1,100 @@
+8,10c8,9
+< 	# Parses output of some windows CLI commands and returns a hash with the keys/vals detected
+< 	# If the item has multiple values, they will all be returned in the val separated by commas
+< 	# Keys are downcased and symbolized (key.downcase.to_sym)
+---
+> 	# Parses output of some windows CLI commands and returns hash with the keys/vals detected
+> 	# 	if the item has multiple values, they will all be returned in the val separated by commas
+22a22,23
+> 	# PID                : 368
+> 	# FLAGS              :
+27,32c28,33
+< 	#	:service_name     => "dumbservice",
+< 	#	:display_name     => "KernelSmith Dumb Service - User-mod",
+< 	#	:state	           => "4  RUNNING",
+< 	#	:start_type       => "2   AUTO_START",
+< 	#	:binary_path_name => "C:\Windows\system32\svchost.exe -k LocalSystemNetworkRestricted",
+< 	#	:dependencies     => "PlugPlay,DumberService"
+---
+> 	#	'SERVICE_NAME'     => "dumbservice",
+> 	#	'DISPLAY_NAME'     => "KernelSmith Dumb Service - User-mod",
+> 	#	'STATE'	           => "4  RUNNING",
+> 	#	'START_TYPE'       => "2   AUTO_START",
+> 	#	'BINARY_PATH_NAME' => "C:\Windows\system32\svchost.exe -k LocalSystemNetworkRestricted",
+> 	#	'DEPENDENCIES'     => "PlugPlay,DumberService"
+36,67d36
+< 	
+< 	require 'msf/windows_error'
+< 	require 'rex/logging'
+< 	require 'rex/exceptions'
+< 	
+< 	#Msf::Post::Windows::CliParse::ParseError
+< 	class ParseError < ArgumentError
+<         def initialize(method, einfo='', ecode=nil, clicmd=nil)
+<                 @method = method
+<                 @info = einfo
+< 				# try to look up info if not given, but code is?
+<                 @code   = ecode 
+<                 @clicmd = clicmd || "Unknown shell command"
+<         end
+< 
+<         def to_s
+<                 "#{@method}: Operation failed: #{@info}:#{@code} while running #{@clicmd}"
+<         end
+< 
+<         # The method that failed.
+<         attr_reader :method
+< 
+<         # The error info that occurred, typically a windows error message.
+<         attr_reader :info
+< 
+<         # The error result that occurred, typically a windows error code.
+<         attr_reader :code
+<         
+<         # The shell command that caused the error, if known
+<         attr_reader :clicmd
+< 	end
+< 	
+68a38
+> 		#print_status "Parsing results string: #{str}" if $blab
+70c40
+< 		hashish = {}
+---
+> 		hashish = Hash.new(nil)
+78a49
+> 				#print_status "Caught line continuation with :" if $blab
+86a58
+> 				#print_status "Caught line continuation with (" if $blab
+95c67,68
+< 				k = arr[0].strip.downcase.to_sym
+---
+> 				#print_status "Array split is #{arr.inspect}" if $blab
+> 				k = arr[0].strip
+98a72
+> 				#print_status "Adding the following hash entry: #{k} => #{v}" if $blab
+135c109
+< 	def win_parse_error(results)
+---
+> 	def win_parse_error(str)
+140,141c114
+< 		# parse the results
+< 		if ma = /^error:.*/i.match(results) # if line starts with Error: just pass to regular parser
+---
+> 		if ma = /^error:.*/i.match(str) # if line starts with Error: just pass to regular parser
+144c117,118
+< 		elsif ma = /FAILED +[0-9]+/.match(results) # look for 'FAILED ' followed by some numbers
+---
+> 		elsif ma = /FAILED +[0-9]+/.match(str) # look for 'FAILED ' followed by some numbers
+> 			#print_status "Found FAILED, ma is #{ma.inspect}" if $blab
+145a120
+> 			#print_status "sa is #{sa.inspect}" if $blab
+147,148c122,124
+< 			# ^ intended to capture the numbers after the word 'FAILED' as [:errval]
+< 			ma = /^[^\[\n].+/.match(results)
+---
+> 			# above intended to capture the numbers after the word 'FAILED' as [:errval]
+> 			ma = /^[^\[\n].+/.match(str)
+> 			#print_status "ma is #{ma.inspect}" if $blab
+153a130,131
+> 		#print_error "Error hash:  #{hashish.inspect}" if $blab
+> 		print_error "This error hash is optionally available:  #{hashish.pretty_inspect}"
